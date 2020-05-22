@@ -1,18 +1,52 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 TGDrives, s.r.o.
+** https://www.tgdrives.cz
+**
+** This file is part of the TGMmini Profinet I/O device.
+**
+**
+**  TGMmini Profinet I/O device free software: 
+**  you can redistribute it and/or modify it under the terms of the 
+**  GNU General Public License as published by the Free Software Foundation, 
+**  either version 3 of the License, or (at your option) any later version.
+**
+**  TGMmini Profinet I/O device is distributed in the hope that it will be useful,
+**  but WITHOUT ANY WARRANTY; without even the implied warranty of 
+**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+**  GNU General Public License for more details.
+**
+**  You should have received a copy of the GNU General Public License along with 
+**  TGMmini Profinet I/O device. If not, see <https://www.gnu.org/licenses/>.
+**
+****************************************************************************/
+// main_linux.c
+// main program file
+// 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
+#include <time.h>
 
-#include <arpa/inet.h>
-#include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
+#include <sys/time.h>
 
-#include <pnet_api.h>
+#include "pnet_api.h"
 #include "osal.h"
 #include "log.h"
+#include "events_linux.h"
+#include "cmd_args.h"
+#include "config.h"
+#include "utils.h"
+#include "plc_memory.h"
 
-#define IP_INVALID              0
+#ifndef __STD
+#define __STD(a)  a
+#endif
 
 /********************* Call-back function declarations ************************/
 
@@ -29,1477 +63,1172 @@ static int app_read_ind(pnet_t *net, void *arg, uint32_t arep, uint16_t api, uin
 static int app_alarm_cnf(pnet_t *net, void *arg, uint32_t arep, pnet_pnio_status_t *p_pnio_status);
 static int app_alarm_ind(pnet_t *net, void *arg, uint32_t arep, uint32_t api, uint16_t slot, uint16_t subslot, uint16_t data_len, uint16_t data_usi, uint8_t *p_data);
 static int app_alarm_ack_cnf(pnet_t *net, void *arg, uint32_t arep, int res);
-static int app_reset_ind(pnet_t  *net, void *arg, bool should_reset_application, uint16_t reset_mode);
-void print_bytes(uint8_t *bytes, int32_t len);
+static int app_reset_ind(pnet_t *net, void *arg, bool should_reset_application, uint16_t reset_mode);
 
+/******* list of supported modules and submodules                      ********/
 
-/********************** Settings **********************************************/
-
-#define EVENT_READY_FOR_DATA           BIT(0)
-#define EVENT_TIMER                    BIT(1)
-#define EVENT_ALARM                    BIT(2)
-#define EVENT_ABORT                    BIT(15)
-
-#define EXIT_CODE_ERROR                1
-#define TICK_INTERVAL_US               1000        /* 1 ms */
-#define APP_DEFAULT_ETHERNET_INTERFACE "eth0"
-#define APP_PRIORITY                   15
-#define APP_STACKSIZE                  4096        /* bytes */
-#define APP_MAIN_SLEEPTIME_US          5000*1000
-#define APP_ALARM_USI                  1
-
-
-/**************** From the GSDML file ****************************************/
-
-#define APP_DEFAULT_STATION_NAME "rt-labs-dev"
-#define APP_PARAM_IDX_1          123
-#define APP_PARAM_IDX_2          124
-#define APP_API                  0
-
-/*
- * Module and submodule ident number for the DAP module.
- * The DAP module and submodules must be plugged by the application after the call to pnet_init.
- */
-#define PNET_SLOT_DAP_IDENT                        0x00000000
-#define PNET_MOD_DAP_IDENT                         0x00000001     /* For use in slot 0 */
-#define PNET_SUBMOD_DAP_IDENT                      0x00000001     /* For use in subslot 1 */
-#define PNET_SUBMOD_DAP_INTERFACE_1_IDENT          0x00008000     /* For use in subslot 0x8000 */
-#define PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT   0x00008001     /* For use in subslot 0x8001 */
-
-/*
- * I/O Modules. These modules and their sub-modules must be plugged by the
- * application after the call to pnet_init.
- *
- * Assume that all modules only have a single submodule, with same number.
- */
-#define PNET_MOD_8_0_IDENT          0x00000030     /* 8 bit input */
-#define PNET_MOD_0_8_IDENT          0x00000031     /* 8 bit output */
-#define PNET_MOD_8_8_IDENT          0x00000032     /* 8 bit input, 8 bit output */
-#define PNET_SUBMOD_CUSTOM_IDENT    0x00000001
-
-#define APP_DATASIZE_INPUT       1     /* bytes, for digital inputs data */
-#define APP_DATASIZE_OUTPUT      1     /* bytes, for digital outputs data */
-#define APP_ALARM_PAYLOAD_SIZE   1     /* bytes */
-
-
-/*** Example on how to keep lists of supported modules and submodules ********/
-
-static const uint32_t            cfg_available_module_types[] =
+// for internal use
+const module_t cfg_available_module_types[NUMBER_OF_DEFINED_MODULES] =
 {
-   PNET_MOD_DAP_IDENT,
-   PNET_MOD_8_0_IDENT,
-   PNET_MOD_0_8_IDENT,
-   PNET_MOD_8_8_IDENT
+  {
+    .module_id           = PNET_MOD_DAP_IDENT,
+    .insize              = 0,
+    .outsize             = 0,
+    .data_dir            = PNET_DIR_NO_IO,
+    .in_offset_param_id  = 0,
+    .in_def_data_offset  = 0,
+    .out_offset_param_id = 0,
+    .out_def_data_offset = 0,
+  },
+
+  {
+    .module_id           = PNET_MOD_32_I_IDENT,
+    .insize              = PNET_MOD_32_I_DATASIZE_INPUT,
+    .outsize             = 0,
+    .data_dir            = PNET_DIR_INPUT,
+    .in_offset_param_id  = I32_PLC_OFFSET_PARAM_IDX_101,
+    .in_def_data_offset  = I32_PLC_OFFSET_DEFAULT_VALUE,
+    .out_offset_param_id = 0,
+    .out_def_data_offset = 0,
+  },
+
+  {
+    .module_id           = PNET_MOD_64_I_IDENT,
+    .insize              = PNET_MOD_64_I_DATASIZE_INPUT,
+    .outsize             = 0,
+    .data_dir            = PNET_DIR_INPUT,
+    .in_offset_param_id  = I64_PLC_OFFSET_PARAM_IDX_102,
+    .in_def_data_offset  = I64_PLC_OFFSET_DEFAULT_VALUE,
+    .out_offset_param_id = 0,
+    .out_def_data_offset = 0,
+  },
+
+  {
+    .module_id           = PNET_MOD_128_I_IDENT,
+    .insize              = PNET_MOD_128_I_DATASIZE_INPUT,
+    .outsize             = 0,
+    .data_dir            = PNET_DIR_INPUT,
+    .in_offset_param_id  = I128_PLC_OFFSET_PARAM_IDX_103,
+    .in_def_data_offset  = I128_PLC_OFFSET_DEFAULT_VALUE,
+    .out_offset_param_id = 0,
+    .out_def_data_offset = 0,
+  },
+
+  {
+    .module_id           = PNET_MOD_256_I_IDENT,
+    .insize              = PNET_MOD_256_I_DATASIZE_INPUT,
+    .outsize             = 0,
+    .data_dir            = PNET_DIR_INPUT,
+    .in_offset_param_id  = I256_PLC_OFFSET_PARAM_IDX_104,
+    .in_def_data_offset  = I256_PLC_OFFSET_DEFAULT_VALUE,
+    .out_offset_param_id = 0,
+    .out_def_data_offset = 0,
+  },
+
+  {
+    .module_id           = PNET_MOD_32_O_IDENT,
+    .insize              = 0,
+    .outsize             = PNET_MOD_32_O_DATASIZE_OUTPUT,
+    .data_dir            = PNET_DIR_OUTPUT,
+    .in_offset_param_id  = 0,
+    .in_def_data_offset  = 0,
+    .out_offset_param_id = O32_PLC_OFFSET_PARAM_IDX_105,
+    .out_def_data_offset = O32_PLC_OFFSET_DEFAULT_VALUE,
+  },
+
+  {
+    .module_id           = PNET_MOD_64_O_IDENT,
+    .insize              = 0,
+    .outsize             = PNET_MOD_64_O_DATASIZE_OUTPUT,
+    .data_dir            = PNET_DIR_OUTPUT,
+    .in_offset_param_id  = 0,
+    .in_def_data_offset  = 0,
+    .out_offset_param_id = O64_PLC_OFFSET_PARAM_IDX_106,
+    .out_def_data_offset = O64_PLC_OFFSET_DEFAULT_VALUE,
+  },
+
+  {
+    .module_id           = PNET_MOD_128_O_IDENT,
+    .insize              = 0,
+    .outsize             = PNET_MOD_128_O_DATASIZE_OUTPUT,
+    .data_dir            = PNET_DIR_OUTPUT,
+    .in_offset_param_id  = 0,
+    .in_def_data_offset  = 0,
+    .out_offset_param_id = O128_PLC_OFFSET_PARAM_IDX_107,
+    .out_def_data_offset = O128_PLC_OFFSET_DEFAULT_VALUE,
+  },
+
+  {
+    .module_id           = PNET_MOD_256_O_IDENT,
+    .insize              = 0,
+    .outsize             = PNET_MOD_256_O_DATASIZE_OUTPUT,
+    .data_dir            = PNET_DIR_OUTPUT,
+    .in_offset_param_id  = 0,
+    .in_def_data_offset  = 0,
+    .out_offset_param_id = O256_PLC_OFFSET_PARAM_IDX_108,
+    .out_def_data_offset = O256_PLC_OFFSET_DEFAULT_VALUE,
+  },
+
+
 };
 
-static const struct
+const submodule_t cfg_available_submodule_types[NUMBER_OF_DEFINED_SUBMODULES] =
 {
-   uint32_t                api;
-   uint32_t                module_ident_nbr;
-   uint32_t                submodule_ident_nbr;
-   pnet_submodule_dir_t    data_dir;
-   uint16_t                insize;     /* bytes */
-   uint16_t                outsize;    /* bytes */
-} cfg_available_submodule_types[] =
-{
-   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_IDENT,                    PNET_DIR_NO_IO,  0,                  0},
-   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT,        PNET_DIR_NO_IO,  0,                  0},
-   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT, PNET_DIR_NO_IO,  0,                  0},
-   {APP_API, PNET_MOD_8_0_IDENT, PNET_SUBMOD_CUSTOM_IDENT,                 PNET_DIR_INPUT,  APP_DATASIZE_INPUT, 0},
-   {APP_API, PNET_MOD_0_8_IDENT, PNET_SUBMOD_CUSTOM_IDENT,                 PNET_DIR_OUTPUT, 0,                  APP_DATASIZE_OUTPUT},
-   {APP_API, PNET_MOD_8_8_IDENT, PNET_SUBMOD_CUSTOM_IDENT,                 PNET_DIR_IO,     APP_DATASIZE_INPUT, APP_DATASIZE_OUTPUT},
+   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_IDENT,                    PNET_DIR_NO_IO,  0, 0 },
+   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT,        PNET_DIR_NO_IO,  0, 0 },
+   {APP_API, PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT, PNET_DIR_NO_IO,  0, 0 },
+   {APP_API, PNET_MOD_32_I_IDENT,  PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_INPUT,  PNET_MOD_32_I_DATASIZE_INPUT,  0  },
+   {APP_API, PNET_MOD_64_I_IDENT,  PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_INPUT,  PNET_MOD_64_I_DATASIZE_INPUT,  0  },
+   {APP_API, PNET_MOD_128_I_IDENT, PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_INPUT,  PNET_MOD_128_I_DATASIZE_INPUT, 0  },
+   {APP_API, PNET_MOD_256_I_IDENT, PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_INPUT,  PNET_MOD_256_I_DATASIZE_INPUT, 0  },
+   {APP_API, PNET_MOD_32_O_IDENT,  PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_OUTPUT, 0, PNET_MOD_32_O_DATASIZE_OUTPUT  },
+   {APP_API, PNET_MOD_64_O_IDENT,  PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_OUTPUT, 0, PNET_MOD_64_O_DATASIZE_OUTPUT  },
+   {APP_API, PNET_MOD_128_O_IDENT, PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_OUTPUT, 0, PNET_MOD_128_O_DATASIZE_OUTPUT },
+   {APP_API, PNET_MOD_256_O_IDENT, PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_OUTPUT, 0, PNET_MOD_256_O_DATASIZE_OUTPUT },
 };
 
-/************************ App data storage ***********************************/
-
-struct cmd_args {
-   char path_led[256];
-   char path_button1[256];
-   char path_button2[256];
-   char station_name[64];
-   char eth_interface[64];
-   int  verbosity;
-};
-
-typedef struct app_data_obj
-{
-   os_timer_t                *main_timer;
-   os_event_t                *main_events;
-   uint32_t                  main_arep;
-   bool                      alarm_allowed;
-   struct cmd_args           arguments;
-   uint32_t                  app_param_1;
-   uint32_t                  app_param_2;
-   uint8_t                   inputdata[APP_DATASIZE_INPUT];
-   uint8_t                   custom_input_slots[PNET_MAX_MODULES];
-   uint8_t                   custom_output_slots[PNET_MAX_MODULES];
-   bool                      init_done;
-} app_data_t;
-
-
-typedef struct app_data_and_stack_obj
-{
-   app_data_t           *appdata;
-   pnet_t               *net;
-} app_data_and_stack_t;
-
+static pf_device_t thisDevice;
 
 /************ Configuration of product ID, software version etc **************/
-
-static pnet_cfg_t                pnet_default_cfg =
+static pnet_cfg_t  pnet_default_cfg =
 {
-      /* Call-backs */
-      .state_cb = app_state_ind,
-      .connect_cb = app_connect_ind,
-      .release_cb = app_release_ind,
-      .dcontrol_cb = app_dcontrol_ind,
-      .ccontrol_cb = app_ccontrol_cnf,
-      .read_cb = app_read_ind,
-      .write_cb = app_write_ind,
-      .exp_module_cb = app_exp_module_ind,
-      .exp_submodule_cb = app_exp_submodule_ind,
-      .new_data_status_cb = app_new_data_status_ind,
-      .alarm_ind_cb = app_alarm_ind,
-      .alarm_cnf_cb = app_alarm_cnf,
-      .alarm_ack_cnf_cb = app_alarm_ack_cnf,
-      .reset_cb = app_reset_ind,
-      .cb_arg = NULL,
+  /* Call-backs */
+  .state_cb = app_state_ind,
+  .connect_cb = app_connect_ind,
+  .release_cb = app_release_ind,
+  .dcontrol_cb = app_dcontrol_ind,
+  .ccontrol_cb = app_ccontrol_cnf,
+  .read_cb = app_read_ind,
+  .write_cb = app_write_ind,
+  .exp_module_cb = app_exp_module_ind,
+  .exp_submodule_cb = app_exp_submodule_ind,
+  .new_data_status_cb = app_new_data_status_ind,
+  .alarm_ind_cb = app_alarm_ind,
+  .alarm_cnf_cb = app_alarm_cnf,
+  .alarm_ack_cnf_cb = app_alarm_ack_cnf,
+  .reset_cb = app_reset_ind,
+  .cb_arg = NULL,
 
-      .im_0_data =
-      {
-       .vendor_id_hi = 0xfe,
-       .vendor_id_lo = 0xed,
-       .order_id = "<orderid>           ",
-       .im_serial_number = "<serial nbr>    ",
-       .im_hardware_revision = 1,
-       .sw_revision_prefix = 'P', /* 'V', 'R', 'P', 'U', or 'T' */
-       .im_sw_revision_functional_enhancement = 0,
-       .im_sw_revision_bug_fix = 0,
-       .im_sw_revision_internal_change = 0,
-       .im_revision_counter = 0,
-       .im_profile_id = 0x1234,
-       .im_profile_specific_type = 0x5678,
-       .im_version_major = 1,
-       .im_version_minor = 1,
-       .im_supported = 0x001e,         /* Only I&M0..I&M4 supported */
-      },
-      .im_1_data =
-      {
-       .im_tag_function = "",
-       .im_tag_location = ""
-      },
-      .im_2_data =
-      {
-       .im_date = ""
-      },
-      .im_3_data =
-      {
-       .im_descriptor = ""
-      },
-      .im_4_data =
-      {
-       .im_signature = ""
-      },
+  .im_0_data =
+  {
+    .vendor_id_hi = 0x05,
+    .vendor_id_lo = 0x44,
+    .order_id = "<orderid>           ",
+    .im_serial_number = "<serial nbr>    ",
+    .im_hardware_revision = 2,
+    .sw_revision_prefix = 'V', /* 'V', 'R', 'P', 'U', or 'T' */
+    .im_sw_revision_functional_enhancement = 2,
+    .im_sw_revision_bug_fix = 0,
+    .im_sw_revision_internal_change = 0,
+    .im_revision_counter = 0,
+    .im_profile_id = 0x1,
+    .im_profile_specific_type = 0x1,
+    .im_version_major = 1,
+    .im_version_minor = 1,
+    .im_supported = 0x001e,         /* Only I&M0..I&M4 supported */
+    //    This parameter indicates the
+    //    availability of the I&M records :
+    // Byte 0 :
+    //   2^7 = 0 : I&M15(not supported)
+    //   2^6 = 0 : I&M14(not supported)
+    //   2^5 = 0 : I&M13(not supported)
+    //   2^4 = 0 : I&M12(not supported)
+    //   2^3 = 0 : I&M11(not supported)
+    //   2^2 = 0 : I&M10(not supported)
+    //   2^1 = 0 : I&M9(not supported)
+    //   2^0 = 0 : I&M8(not supported)
+    //   Byte 1 :
+    //   2^7 = 0 : I&M7(not supported)
+    //   2^6 = 0 : I&M6(not supported)
+    //   2^5 = 0 : I&M5(not supported)
+    //   2^4 = 0 : I&M4(optional)
+    //   2^3 = 1 : I&M3(mandatory)
+    //   2^2 = 1 : I&M2(mandatory)
+    //   2^1 = 1 : I&M1(mandatory)
+    //   2^0 = 0 : profile specific I & M
+    //   (not supported)
+  },
+  .im_1_data =
+  {
+   .im_tag_function = "",
+   .im_tag_location = ""
+  },
+  .im_2_data =
+  {
+   .im_date = ""
+  },
+  .im_3_data =
+  {
+   .im_descriptor = ""
+  },
+  .im_4_data =
+  {
+   .im_signature = ""
+  },
 
-      /* Device configuration */
-      .device_id =
-      {  /* device id: vendor_id_hi, vendor_id_lo, device_id_hi, device_id_lo */
-         0xfe, 0xed, 0xbe, 0xef,
-      },
-      .oem_device_id =
-      {  /* OEM device id: vendor_id_hi, vendor_id_lo, device_id_hi, device_id_lo */
-         0xc0, 0xff, 0xee, 0x01,
-      },
-      .station_name = "",   /* Override by command line argument */
-      .device_vendor = "rt-labs",
-      .manufacturer_specific_string = "PNET demo",
+  /* Device configuration */
+  .device_id =
+  {  /* device id: vendor_id_hi, vendor_id_lo, device_id_hi, device_id_lo */
+     0x05, 0x44, 0x00, 0x01,
+  },
+  .oem_device_id =
+  {  /* OEM device id: vendor_id_hi, vendor_id_lo, device_id_hi, device_id_lo */
+     0x05, 0x44, 0x00, 0x01,
+  },
+  .station_name = "",              /* Set by command line argument */
+  .device_vendor = "TGDrives",
+  .manufacturer_specific_string = "tgmmini",
 
-      .lldp_cfg =
-      {
-       .chassis_id = "rt-labs1",   /* Is this a valid name? '-' allowed?*/
-       .port_id = "port-001",
-       .ttl = 20,          /* seconds */
-       .rtclass_2_status = 0,
-       .rtclass_3_status = 0,
-       .cap_aneg = 3,      /* Supported (0x01) + enabled (0x02) */
-       .cap_phy = 0x0C00,  /* Unknown (0x8000) */
-       .mau_type = 0x0010, /* Default (copper): 100BaseTXFD */
-      },
+  .lldp_cfg =
+  {
+   .chassis_id = "tgmmini",   /* Is this a valid name? '-' allowed?*/
+   .port_id = "port-001",
+   .ttl = 20,          /* seconds */
+   .rtclass_2_status = 0,
+   .rtclass_3_status = 0,
+   .cap_aneg = PNET_LLDP_AUTONEG_SUPPORTED | PNET_LLDP_AUTONEG_ENABLED,
+   .cap_phy = PNET_LLDP_AUTONEG_CAP_100BaseTX_HALF_DUPLEX | PNET_LLDP_AUTONEG_CAP_100BaseTX_FULL_DUPLEX,
+   .mau_type = PNET_MAU_COPPER_100BaseTX_FULL_DUPLEX,
+  },
 
-      /* Network configuration */
-      .send_hello = 1,                    /* Send HELLO */
-      .dhcp_enable = 0,
-      .ip_addr = { 0 },                   /* Read from kernel */
-      .ip_mask = { 0 },                   /* Read from kernel */
-      .ip_gateway = { 0 },                /* Read from kernel */
-      .eth_addr = { 0 },                  /* Read from kernel */
+  /* Network configuration */
+  .send_hello = 1,                    /* Send HELLO */
+  .dhcp_enable = 0,
+  .ip_addr = { 0 },                   /* Read from Linux kernel */
+  .ip_mask = { 0 },                   /* Read from Linux kernel */
+  .ip_gateway = { 0 },                /* Read from Linux kernel */
+  .eth_addr = { { 0 } },                  /* Read from Linux kernel */
+  .p_default_device = &thisDevice,
+  .check_peers_data = { 0, 0, { 0 }, 0, { 0 } },
 };
-
 
 /*********************************** Callbacks ********************************/
 
 static int app_connect_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_result_t           *p_result)
+  pnet_t        *net,
+  void          *arg,
+  uint32_t       arep,
+  pnet_result_t *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
-         arep,
-         p_result->pnio_status.error_code,
-         p_result->pnio_status.error_decode,
-         p_result->pnio_status.error_code_1,
-         p_result->pnio_status.error_code_2);
-   }
-   /*
-    *  Handle the request on an application level.
-    *  This is a very simple application which does not need to handle anything.
-    *  All the needed information is in the AR data structure.
-    */
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
+           arep,
+           p_result->pnio_status.error_code,
+           p_result->pnio_status.error_decode,
+           p_result->pnio_status.error_code_1,
+           p_result->pnio_status.error_code_2);
+  }
+  /*
+   *  Handle the request on an application level.
+   *  This is a very simple application which does not need to handle anything.
+   *  All the needed information is in the AR data structure.
+   */
 
-   return 0;
+  return 0;
 }
 
 static int app_release_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_result_t           *p_result)
+  pnet_t       *net,
+  void         *arg,
+  uint32_t      arep,
+  pnet_result_t *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
-         arep,
-         p_result->pnio_status.error_code,
-         p_result->pnio_status.error_decode,
-         p_result->pnio_status.error_code_1,
-         p_result->pnio_status.error_code_2);
-   }
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
+           arep,
+           p_result->pnio_status.error_code,
+           p_result->pnio_status.error_decode,
+           p_result->pnio_status.error_code_1,
+           p_result->pnio_status.error_code_2);
+  }
 
-   return 0;
+  return 0;
 }
 
 static int app_dcontrol_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_control_command_t  control_command,
-   pnet_result_t           *p_result)
+  pnet_t                *net,
+  void                  *arg,
+  uint32_t               arep,
+  pnet_control_command_t control_command,
+  pnet_result_t         *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Dcontrol call-back. AREP: %u  Command: %d  Status codes: %d %d %d %d\n",
-         arep,
-         control_command,
-         p_result->pnio_status.error_code,
-         p_result->pnio_status.error_decode,
-         p_result->pnio_status.error_code_1,
-         p_result->pnio_status.error_code_2);
-   }
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Dcontrol call-back. AREP: %u  Command: %d  Status codes: %d %d %d %d\n",
+           arep,
+           control_command,
+           p_result->pnio_status.error_code,
+           p_result->pnio_status.error_decode,
+           p_result->pnio_status.error_code_1,
+           p_result->pnio_status.error_code_2);
+  }
 
-   return 0;
+  return 0;
 }
 
 static int app_ccontrol_cnf(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_result_t           *p_result)
+  pnet_t        *net,
+  void          *arg,
+  uint32_t       arep,
+  pnet_result_t *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Ccontrol confirmation call-back. AREP: %u  Status codes: %d %d %d %d\n",
-         arep,
-         p_result->pnio_status.error_code,
-         p_result->pnio_status.error_decode,
-         p_result->pnio_status.error_code_1,
-         p_result->pnio_status.error_code_2);
-   }
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Ccontrol confirmation call-back. AREP: %u  Status codes: %d %d %d %d\n",
+           arep,
+           p_result->pnio_status.error_code,
+           p_result->pnio_status.error_decode,
+           p_result->pnio_status.error_code_1,
+           p_result->pnio_status.error_code_2);
+  }
 
-   return 0;
+  return 0;
 }
 
+// write parameter (from controller to device)
+// parameter is offset to PLC memory
 static int app_write_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   uint16_t                api,
-   uint16_t                slot,
-   uint16_t                subslot,
-   uint16_t                idx,
-   uint16_t                sequence_number,
-   uint16_t                write_length,
-   uint8_t                 *p_write_data,
-   pnet_result_t           *p_result)
+  pnet_t        *net,
+  void          *arg,
+  uint32_t       arep,
+  uint16_t       api,
+  uint16_t       slot,
+  uint16_t       subslot,
+  uint16_t       idx,
+  uint16_t       sequence_number,
+  uint16_t       write_length,
+  uint8_t       *p_write_data,
+  pnet_result_t *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
+  
+  if (idx <= PF_IDX_USER_MAX)
+  {
+    return writeUserParameter(slot, subslot, write_length, p_write_data, p_appdata, idx, p_result);
+  }
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Parameter write call-back. AREP: %u API: %u Slot: %u Subslot: %u Index: %u Sequence: %u Length: %u\n",
-         arep,
-         api,
-         slot,
-         subslot,
-         (unsigned)idx,
-         sequence_number,
-         write_length);
-   }
-   if (idx == APP_PARAM_IDX_1)
-   {
-      if (write_length == sizeof(p_appdata->app_param_1))
-      {
-         memcpy(&p_appdata->app_param_1, p_write_data, sizeof(p_appdata->app_param_1));
-         if (p_appdata->arguments.verbosity > 0)
-         {
-            print_bytes(p_write_data, sizeof(p_appdata->app_param_1));
-         }
-      }
-      else
-      {
-         printf("Wrong length in write call-back. Index: %u Length: %u Expected length: %u\n",
-            (unsigned)idx,
-            (unsigned)write_length,
-            (unsigned)sizeof(p_appdata->app_param_1));
-      }
-   }
-   else if (idx == APP_PARAM_IDX_2)
-   {
-      if (write_length == sizeof(p_appdata->app_param_2))
-      {
-         memcpy(&p_appdata->app_param_2, p_write_data, sizeof(p_appdata->app_param_2));
-         if (p_appdata->arguments.verbosity > 0)
-         {
-            print_bytes(p_write_data, sizeof(p_appdata->app_param_2));
-         }
-      }
-      else
-      {
-         printf("Wrong length in write call-back. Index: %u Length: %u Expected length: %u\n",
-            (unsigned)idx,
-            (unsigned)write_length,
-            (unsigned)sizeof(p_appdata->app_param_2));
-      }
-   }
-   else
-   {
-      printf("Wrong index in write call-back: %u\n", (unsigned)idx);
-   }
+  // do not set p_result here!
 
-   return 0;
+  return -1;
 }
 
+// read parameter which is a data offset to PLC memory
+// convert the value to big endian and send to controller
 static int app_read_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   uint16_t                api,
-   uint16_t                slot,
-   uint16_t                subslot,
-   uint16_t                idx,
-   uint16_t                sequence_number,
-   uint8_t                 **pp_read_data,
-   uint16_t                *p_read_length,
-   pnet_result_t           *p_result)
+  pnet_t        *net,
+  void          *arg,
+  uint32_t       arep,
+  uint16_t       api,
+  uint16_t       slot,
+  uint16_t       subslot,
+  uint16_t       idx,
+  uint16_t       sequence_number,
+  uint8_t      **pp_read_data,
+  uint16_t      *p_read_length,
+  pnet_result_t *p_result)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Parameter read call-back. AREP: %u API: %u Slot: %u Subslot: %u Index: %u Sequence: %u  Max length: %u\n",
-         arep,
-         api,
-         slot,
-         subslot,
-         (unsigned)idx,
-         sequence_number,
-         (unsigned)*p_read_length);
-   }
-   if ((idx == APP_PARAM_IDX_1) &&
-       (*p_read_length >= sizeof(p_appdata->app_param_1)))
-   {
-      *pp_read_data = (uint8_t*)&p_appdata->app_param_1;
-      *p_read_length = sizeof(p_appdata->app_param_1);
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         print_bytes(*pp_read_data, *p_read_length);
-      }
-   }
-   if ((idx == APP_PARAM_IDX_2) &&
-       (*p_read_length >= sizeof(p_appdata->app_param_2)))
-   {
-      *pp_read_data = (uint8_t*)&p_appdata->app_param_2;
-      *p_read_length = sizeof(p_appdata->app_param_2);
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         print_bytes(*pp_read_data, *p_read_length);
-      }
-   }
+  if (idx <= PF_IDX_USER_MAX)
+  {
+    return readUserParameter(slot, subslot, idx, p_read_length, pp_read_data, p_appdata, p_result);
+  }
 
-   return 0;
+  // do not set p_result here!
+
+  return -1;
 }
+
 
 static int app_state_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_event_values_t     state)
+  pnet_t             *net,
+  void               *arg,
+  uint32_t            arep,
+  pnet_event_values_t state)
 {
-   uint16_t                err_cls = 0;
-   uint16_t                err_code = 0;
-   uint16_t                slot = 0;
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  uint16_t    err_cls = 0;
+  uint16_t    err_code = 0;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (state == PNET_EVENT_ABORT)
-   {
-      if (pnet_get_ar_error_codes(net, arep, &err_cls, &err_code) == 0)
-      {
-         if (p_appdata->arguments.verbosity > 0)
-         {
-               printf("Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u\n",
-                  (unsigned)err_cls, (unsigned)err_code);
-         }
-      }
-      else
-      {
-         if (p_appdata->arguments.verbosity > 0)
-         {
-               printf("Callback on event PNET_EVENT_ABORT. No error status available\n");
-         }
-      }
-      /* Only abort AR with correct session key */
-      os_event_set(p_appdata->main_events, EVENT_ABORT);
-   }
-   else if (state == PNET_EVENT_PRMEND)
-   {
+  if (state == PNET_EVENT_ABORT)
+  {
+    if (pnet_get_ar_error_codes(net, arep, &err_cls, &err_code) == 0)
+    {
       if (p_appdata->arguments.verbosity > 0)
       {
-         printf("Callback on event PNET_EVENT_PRMEND. AREP: %u\n", arep);
+        printf("Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u\n",
+               (unsigned)err_cls, (unsigned)err_code);
       }
-
-      /* Save the arep for later use */
-      p_appdata->main_arep = arep;
-      os_event_set(p_appdata->main_events, EVENT_READY_FOR_DATA);
-
-      /* Set IOPS for DAP slot (has same numbering as the module identifiers) */
-      (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_IDENT,                    NULL, 0, PNET_IOXS_GOOD);
-      (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT,        NULL, 0, PNET_IOXS_GOOD);
-      (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT, NULL, 0, PNET_IOXS_GOOD);
-
-      /* Set initial data and IOPS for custom input modules, and IOCS for custom output modules */
-      for (slot = 0; slot < PNET_MAX_MODULES; slot++)
-      {
-         if (p_appdata->custom_input_slots[slot] == true)
-         {
-            if (p_appdata->arguments.verbosity > 0)
-            {
-               printf("  Setting input data and IOPS for slot %u subslot %u\n", slot, PNET_SUBMOD_CUSTOM_IDENT);
-            }
-            (void)pnet_input_set_data_and_iops(net, APP_API, slot, PNET_SUBMOD_CUSTOM_IDENT, p_appdata->inputdata,  sizeof(p_appdata->inputdata), PNET_IOXS_GOOD);
-         }
-         if (p_appdata->custom_output_slots[slot] == true)
-         {
-            if (p_appdata->arguments.verbosity > 0)
-            {
-               printf("  Setting output IOCS for slot %u subslot %u\n", slot, PNET_SUBMOD_CUSTOM_IDENT);
-            }
-            (void)pnet_output_set_iocs(net, APP_API, slot, PNET_SUBMOD_CUSTOM_IDENT, PNET_IOXS_GOOD);
-         }
-      }
-
-      (void)pnet_set_provider_state(net, true);
-   }
-   else if (state == PNET_EVENT_DATA)
-   {
+    }
+    else
+    {
       if (p_appdata->arguments.verbosity > 0)
       {
-         printf("Callback on event PNET_EVENT_DATA\n");
+        printf("Callback on event PNET_EVENT_ABORT. No error status available\n");
       }
-   }
-   else if (state == PNET_EVENT_STARTUP)
-   {
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         printf("Callback on event PNET_EVENT_STARTUP\n");
-      }
-   }
-   else if (state == PNET_EVENT_APPLRDY)
-   {
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         printf("Callback on event PNET_EVENT_APPLRDY\n");
-      }
-   }
+    }
+    /* Only abort AR with correct session key */
+    os_event_set(p_appdata->main_events, EVENT_ABORT);
+  }
+  else if (state == PNET_EVENT_PRMEND)
+  {
+    if (p_appdata->arguments.verbosity > 0)
+    {
+      printf("Callback on event PNET_EVENT_PRMEND. AREP: %u\n", arep);
+    }
 
-   return 0;
+    /* Set IOPS for DAP slot (has same numbering as the module identifiers) */
+    (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_IDENT, NULL, 0, PNET_IOXS_GOOD);
+    (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT, NULL, 0, PNET_IOXS_GOOD);
+    (void)pnet_input_set_data_and_iops(net, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT, NULL, 0, PNET_IOXS_GOOD);
+
+    setupPluggedModules(net, p_appdata);
+
+    (void)pnet_set_provider_state(net, true);
+
+    /* Save the arep for later use */
+    p_appdata->main_arep = arep;
+    os_event_set(p_appdata->main_events, EVENT_READY_FOR_DATA);
+  }
+  else if (state == PNET_EVENT_DATA)
+  {
+    if (p_appdata->arguments.verbosity > 0)
+    {
+      printf("Callback on event PNET_EVENT_DATA\n");
+    }
+  }
+  else if (state == PNET_EVENT_STARTUP)
+  {
+    if (p_appdata->arguments.verbosity > 0)
+    {
+      printf("Callback on event PNET_EVENT_STARTUP\n");
+    }
+  }
+  else if (state == PNET_EVENT_APPLRDY)
+  {
+    if (p_appdata->arguments.verbosity > 0)
+    {
+      printf("Callback on event PNET_EVENT_APPLRDY\n");
+    }
+  }
+
+  return 0;
 }
 
 static int app_reset_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   bool                    should_reset_application,
-   uint16_t                reset_mode)
+  pnet_t   *net,
+  void     *arg,
+  bool      should_reset_application,
+  uint16_t  reset_mode)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
-
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Reset call-back. Application reset mandatory: %u  Reset mode: %d\n",
-         should_reset_application,
-         reset_mode);
-   }
-
-   return 0;
+  app_data_t *p_appdata = (app_data_t *)arg;
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("*** Reset call-back. Application reset mandatory: %u  Reset mode: %d ***\n",
+           should_reset_application,
+           reset_mode);
+  }
+  if(reset_mode == 1) // Reset application parameters
+  {
+  }
+  else if (reset_mode == 2) // reset communication parameters
+  {
+    os_ipaddr_t zero = 0;
+    os_set_ip_suite(p_appdata, zero, zero, zero, false);
+    os_set_station_name(p_appdata, "", false);
+  }
+  return 0;
 }
 
 static int app_exp_module_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint16_t                api,
-   uint16_t                slot,
-   uint32_t                module_ident)
+  pnet_t   *net,
+  void     *arg,
+  uint16_t  api,
+  uint16_t  slot,
+  uint32_t  module_ident)
 {
-   int                     ret = -1;   /* Not supported in specified slot */
-   uint16_t                ix;
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  int         ret = -1;   /* Not supported in specified slot */
+  app_data_t *p_appdata = (app_data_t *)arg;
+  const int   verbosity = p_appdata->arguments.verbosity;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Module plug call-back\n");
-   }
+  if (verbosity > 0)
+  {
+    printf("Module plug call-back\n");
+  }
 
-   /* Find it in the list of supported modules */
-   ix = 0;
-   while ((ix < NELEMENTS(cfg_available_module_types)) &&
-          (cfg_available_module_types[ix] != module_ident))
-   {
-      ix++;
-   }
+  /* Find it in the list of supported modules */
+  uint16_t  ix = 0;
+  while ((ix < NELEMENTS(cfg_available_module_types)) &&
+         (cfg_available_module_types[ix].module_id != module_ident))
+  {
+    ix++;
+  }
 
-   if (ix < NELEMENTS(cfg_available_module_types))
-   {
-      printf("  Pull old module.    API: %u Slot: 0x%x",
-         api,
-         slot
-      );
-      if (pnet_pull_module(net, api, slot) != 0)
+  if (ix < NELEMENTS(cfg_available_module_types))
+  {
+    if(verbosity > 0)
+    {
+      printf("  Pull old module.    API: %u Slot: 0x%x\n", api, slot);
+    }
+
+    if (pnet_pull_module(net, api, slot) != 0)
+    {
+      if (verbosity > 0)
       {
-         printf("    Slot was empty.\n");
+        printf("    Slot was empty.\n");
+      }
+    }
+
+    /* For now support any of the known modules in any slot */
+    if (verbosity > 0)
+    {
+      printf("  Plug module.        API: %u Slot: 0x%x Module ID: 0x%x Index in supported modules: %u\n", api, slot, (unsigned)module_ident, ix);
+    }
+    ret = pnet_plug_module(net, api, slot, module_ident);
+    if (ret != 0)
+    {
+      printf("[ERROR] Plug module failed. Ret: %u API: %u Slot: %u Module ID: 0x%x Index in list of supported modules: %u\n", ret, api, slot, (unsigned)module_ident, ix);
+    }
+    else
+    {
+      /* Remember what is plugged in each slot */
+      if (slot < PNET_MAX_MODULES)
+      {
+        const pnet_submodule_dir_t data_dir = cfg_available_module_types[ix].data_dir;
+        if ((data_dir == PNET_DIR_INPUT) || (data_dir == PNET_DIR_IO))
+        {
+          slot_t *pInputSlot      = &(p_appdata->custom_input_slots[slot]);
+          pInputSlot->module_id   = module_ident;
+          pInputSlot->size        = cfg_available_module_types[ix].insize;
+          pInputSlot->param_id    = cfg_available_module_types[ix].in_offset_param_id;
+          pInputSlot->data_offset = cfg_available_module_types[ix].in_def_data_offset;
+        }
+        if ((data_dir == PNET_DIR_OUTPUT) || (data_dir == PNET_DIR_IO))
+        {
+          slot_t *pOutputSlot      = &(p_appdata->custom_output_slots[slot]);
+          pOutputSlot->module_id   = module_ident;
+          pOutputSlot->size        = cfg_available_module_types[ix].outsize;
+          pOutputSlot->param_id    = cfg_available_module_types[ix].out_offset_param_id;
+          pOutputSlot->data_offset = cfg_available_module_types[ix].out_def_data_offset;
+        }
       }
       else
       {
-         printf("\n");
+        printf("[ERROR] Wrong slot number received: %u  It should be less than %u\n", slot, PNET_MAX_MODULES);
       }
+    }
 
-      /* For now support any of the known modules in any slot */
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         printf("  Plug module.        API: %u Slot: 0x%x Module ID: 0x%x Index in supported modules: %u\n", api, slot, (unsigned)module_ident, ix);
-      }
-      ret = pnet_plug_module(net, api, slot, module_ident);
-      if (ret != 0)
-      {
-         printf("Plug module failed. Ret: %u API: %u Slot: %u Module ID: 0x%x Index in list of supported modules: %u\n", ret, api, slot, (unsigned)module_ident, ix);
-      }
-      else
-      {
-         /* Remember what is plugged in each slot */
-         if (slot < PNET_MAX_MODULES)
-         {
-            if (module_ident == PNET_MOD_8_0_IDENT || module_ident == PNET_MOD_8_8_IDENT)
-            {
-               p_appdata->custom_input_slots[slot] = true;
-            }
-            if (module_ident == PNET_MOD_8_8_IDENT || module_ident == PNET_MOD_0_8_IDENT)
-            {
-               p_appdata->custom_output_slots[slot] = true;
-            }
-         }
-         else
-         {
-            printf("Wrong slot number recieved: %u  It should be less than %u\n", slot, PNET_MAX_MODULES);
-         }
-      }
+  }
+  else
+  {
+    printf("[ERROR] Module ID %08x not found. API: %u Slot: %u\n",
+           (unsigned)module_ident,
+           api,
+           slot);
+  }
 
-   }
-   else
-   {
-      printf("  Module ID %08x not found. API: %u Slot: %u\n",
-         (unsigned)module_ident,
-         api,
-         slot);
-   }
-
-   return ret;
+  return ret;
 }
 
 static int app_exp_submodule_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint16_t                api,
-   uint16_t                slot,
-   uint16_t                subslot,
-   uint32_t                module_ident,
-   uint32_t                submodule_ident)
+  pnet_t  *net,
+  void    *arg,
+  uint16_t api,
+  uint16_t slot,
+  uint16_t subslot,
+  uint32_t module_ident,
+  uint32_t submodule_ident)
 {
-   int                     ret = -1;
-   uint16_t                ix = 0;
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  int         ret = -1;
+  app_data_t *p_appdata = (app_data_t *)arg;
+  const int   verbosity = p_appdata->arguments.verbosity;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Submodule plug call-back.\n");
-   }
+  if (verbosity > 0)
+  {
+    printf("Submodule plug call-back.\n");
+  }
 
-   /* Find it in the list of supported submodules */
-   ix = 0;
-   while ((ix < NELEMENTS(cfg_available_submodule_types)) &&
-          ((cfg_available_submodule_types[ix].module_ident_nbr != module_ident) ||
-           (cfg_available_submodule_types[ix].submodule_ident_nbr != submodule_ident)))
-   {
-      ix++;
-   }
+  /* Find it in the list of supported submodules */
+  uint16_t ix = 0;
+  while ((ix < NELEMENTS(cfg_available_submodule_types)) &&
+         ((cfg_available_submodule_types[ix].module_ident_nbr != module_ident) ||
+          (cfg_available_submodule_types[ix].submodule_ident_nbr != submodule_ident)))
+  {
+    ix++;
+  }
 
-   if (ix < NELEMENTS(cfg_available_submodule_types))
-   {
-      printf("  Pull old submodule. API: %u Slot: 0x%x                   Subslot: 0x%x ",
-         api,
-         slot,
-         subslot
-      );
+  if (ix < NELEMENTS(cfg_available_submodule_types))
+  {
+    if (verbosity > 0)
+    {
+      printf("  Pull old submodule. API: %u Slot: 0x%x Subslot: 0x%x\n",
+             api,
+             slot,
+             subslot);
+    }
 
-      if (pnet_pull_submodule(net, api, slot, subslot) != 0)
+    if (pnet_pull_submodule(net, api, slot, subslot) != 0)
+    {
+      if (verbosity > 0)
       {
-         printf("     Subslot was empty.\n");
-      } else {
-         printf("\n");
+        printf("     Subslot was empty.\n");
       }
+    }
 
-      if (p_appdata->arguments.verbosity > 0)
-      {
-         printf("  Plug submodule.     API: %u Slot: 0x%x Module ID: 0x%-4x Subslot: 0x%x Submodule ID: 0x%x Index in supported submodules: %u Dir: %u In: %u Out: %u bytes\n",
-            api,
-            slot,
-            (unsigned)module_ident,
-            subslot,
-            (unsigned)submodule_ident,
-            ix,
-            cfg_available_submodule_types[ix].data_dir,
-            cfg_available_submodule_types[ix].insize,
-            cfg_available_submodule_types[ix].outsize
-            );
-      }
-      ret = pnet_plug_submodule(net, api, slot, subslot,
-         module_ident,
-         submodule_ident,
-         cfg_available_submodule_types[ix].data_dir,
-         cfg_available_submodule_types[ix].insize,
-         cfg_available_submodule_types[ix].outsize);
-      if (ret != 0)
-      {
-         printf("  Plug submodule failed. Ret: %u API: %u Slot: %u Subslot 0x%x Module ID: 0x%x Submodule ID: 0x%x Index in list of supported modules: %u\n",
-            ret,
-            api,
-            slot,
-            subslot,
-            (unsigned)module_ident,
-            (unsigned)submodule_ident,
-            ix);
-      }
-   }
-   else
-   {
-      printf("  Submodule ID 0x%x in module ID 0x%x not found. API: %u Slot: %u Subslot %u \n",
-         (unsigned)submodule_ident,
-         (unsigned)module_ident,
-         api,
-         slot,
-         subslot);
-   }
+    if (verbosity > 0)
+    {
+      printf("  Plug submodule.     API: %u Slot: 0x%x Module ID: 0x%-4x Subslot: 0x%x Submodule ID: 0x%x Index in supported submodules: %u Dir: %u In: %u Out: %u bytes\n",
+             api,
+             slot,
+             (unsigned)module_ident,
+             subslot,
+             (unsigned)submodule_ident,
+             ix,
+             cfg_available_submodule_types[ix].data_dir,
+             cfg_available_submodule_types[ix].insize,
+             cfg_available_submodule_types[ix].outsize);
+    }
+    ret = pnet_plug_submodule(net, api, slot, subslot,
+                              module_ident,
+                              submodule_ident,
+                              cfg_available_submodule_types[ix].data_dir,
+                              cfg_available_submodule_types[ix].insize,
+                              cfg_available_submodule_types[ix].outsize);
+    if (ret != 0)
+    {
+      printf("[ERROR] Plug submodule failed. Ret: %u API: %u Slot: %u Subslot 0x%x Module ID: 0x%x Submodule ID: 0x%x Index in list of supported modules: %u\n",
+             ret,
+             api,
+             slot,
+             subslot,
+             (unsigned)module_ident,
+             (unsigned)submodule_ident,
+             ix);
+    }
+  }
+  else
+  {
+    printf("[ERROR] Submodule ID 0x%x in module ID 0x%x not found. API: %u Slot: %u Subslot %u \n",
+           (unsigned)submodule_ident,
+           (unsigned)module_ident,
+           api,
+           slot,
+           subslot);
+  }
 
-   return ret;
+  return ret;
 }
 
 static int app_new_data_status_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   uint32_t                crep,
-   uint8_t                 changes,
-   uint8_t                 data_status)
+  pnet_t   *net,
+  void     *arg,
+  uint32_t  arep,
+  uint32_t  crep,
+  uint8_t   changes,
+  uint8_t   data_status)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("New data status callback. AREP: %u  Status changes: 0x%02x  Status: 0x%02x\n", arep, changes, data_status);
-   }
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("New data status callback. AREP: %u  Status changes: 0x%02x  Status: 0x%02x\n", arep, changes, data_status);
+  }
 
-   return 0;
+  return 0;
 }
 
 static int app_alarm_ind(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   uint32_t                api,
-   uint16_t                slot,
-   uint16_t                subslot,
-   uint16_t                data_len,
-   uint16_t                data_usi,
-   uint8_t                 *p_data)
+  pnet_t   *net,
+  void     *arg,
+  uint32_t  arep,
+  uint32_t  api,
+  uint16_t  slot,
+  uint16_t  subslot,
+  uint16_t  data_len,
+  uint16_t  data_usi,
+  uint8_t  *p_data)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Alarm indicated callback. AREP: %u  API: %d  Slot: %d  Subslot: %d  Length: %d  USI: %d",
-         arep,
-         api,
-         slot,
-         subslot,
-         data_len,
-         data_usi);
-   }
-   os_event_set(p_appdata->main_events, EVENT_ALARM);
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Alarm indicated callback. AREP: %u  API: %d  Slot: %d  Subslot: %d  Length: %d  USI: %d",
+           arep,
+           api,
+           slot,
+           subslot,
+           data_len,
+           data_usi);
+  }
+  os_event_set(p_appdata->main_events, EVENT_ALARM);
 
-   return 0;
+  return 0;
 }
 
 static int app_alarm_cnf(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   pnet_pnio_status_t      *p_pnio_status)
+  pnet_t             *net,
+  void               *arg,
+  uint32_t            arep,
+  pnet_pnio_status_t *p_pnio_status)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Alarm confirmed (by controller) callback. AREP: %u  Status code %u, %u, %u, %u\n",
-         arep,
-         p_pnio_status->error_code,
-         p_pnio_status->error_decode,
-         p_pnio_status->error_code_1,
-         p_pnio_status->error_code_2);
-   }
-   p_appdata->alarm_allowed = true;
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Alarm confirmed (by controller) callback. AREP: %u  Status code %u, %u, %u, %u\n",
+           arep,
+           p_pnio_status->error_code,
+           p_pnio_status->error_decode,
+           p_pnio_status->error_code_1,
+           p_pnio_status->error_code_2);
+  }
+  p_appdata->alarm_allowed = true;
 
-   return 0;
+  return 0;
 }
 
 static int app_alarm_ack_cnf(
-   pnet_t                  *net,
-   void                    *arg,
-   uint32_t                arep,
-   int                     res)
+  pnet_t  *net,
+  void    *arg,
+  uint32_t arep,
+  int      res)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Alarm ACK confirmation (from controller) callback. AREP: %u  Result: %d\n", arep, res);
-   }
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Alarm ACK confirmation (from controller) callback. AREP: %u  Result: %d\n", arep, res);
+  }
 
-   return 0;
+  return 0;
+}
+
+// init the default I&MFilterData device for 0xF840 data record
+static void fillDefaultIM0FilterData(pf_device_t *dev)
+{
+  pf_api_t *p_api = dev->apis;
+  p_api->in_use = true;
+  p_api->api_id = 0;
+  // use only the slot 0
+  pf_slot_t *p_slot0               = &(p_api->slots[0]);
+  p_slot0->in_use                  = true;
+  p_slot0->exp_module_ident_number = PNET_MOD_DAP_IDENT;
+  p_slot0->module_ident_number     = PNET_MOD_DAP_IDENT;
+  p_slot0->plug_state              = PF_MOD_PLUG_PROPER_MODULE;
+  p_slot0->slot_nbr                = 0;
+
+  // add subslots (actually only slot 0 is used in response to 0xF840 request)
+  pf_subslot_t *p_subslot0_0               = &(p_slot0->subslots[0]);
+  p_subslot0_0->in_use                     = true;
+  p_subslot0_0->subslot_nbr                = PNET_SUBMOD_DAP_IDENT;
+  p_subslot0_0->exp_submodule_ident_number = PNET_SUBMOD_DAP_IDENT;
+  p_subslot0_0->submodule_ident_number     = PNET_SUBMOD_DAP_IDENT;
+  p_subslot0_0->direction                  = PNET_DIR_NO_IO;
+  p_subslot0_0->submodule_state.ident_info = PF_SUBMOD_PLUG_OK;
+  
+  pf_subslot_t *p_subslot0_1               = &(p_slot0->subslots[1]);
+  p_subslot0_1->in_use                     = true;
+  p_subslot0_1->subslot_nbr                = PNET_SUBMOD_DAP_INTERFACE_1_IDENT;
+  p_subslot0_1->exp_submodule_ident_number = PNET_SUBMOD_DAP_IDENT; // here is the change!
+  p_subslot0_1->submodule_ident_number     = PNET_SUBMOD_DAP_INTERFACE_1_IDENT;
+  p_subslot0_1->direction                  = PNET_DIR_NO_IO;
+  p_subslot0_1->submodule_state.ident_info = PF_SUBMOD_PLUG_OK;
+
+  pf_subslot_t *p_subslot0_2               = &(p_slot0->subslots[2]);
+  p_subslot0_2->in_use                     = true;
+  p_subslot0_2->subslot_nbr                = PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT;
+  p_subslot0_2->exp_submodule_ident_number = PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT;
+  p_subslot0_2->submodule_ident_number     = PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT;
+  p_subslot0_2->direction                  = PNET_DIR_NO_IO;
+  p_subslot0_2->submodule_state.ident_info = PF_SUBMOD_PLUG_OK;
+
+  const uint32_t idents[PNET_MAX_MODULES] = {
+    PNET_SUBMOD_DAP_IDENT,
+    PNET_MOD_32_I_IDENT,
+    PNET_MOD_64_I_IDENT,
+    PNET_MOD_128_I_IDENT,
+    PNET_MOD_256_I_IDENT,
+    PNET_MOD_32_O_IDENT,
+    PNET_MOD_64_O_IDENT,
+    PNET_MOD_128_O_IDENT,
+    PNET_MOD_256_O_IDENT,
+  };
+
+  const pnet_submodule_dir_t dirs[PNET_MAX_MODULES] = {
+    PNET_DIR_NO_IO,
+    PNET_DIR_INPUT,
+    PNET_DIR_INPUT,
+    PNET_DIR_INPUT,
+    PNET_DIR_INPUT,
+    PNET_DIR_OUTPUT,
+    PNET_DIR_OUTPUT,
+    PNET_DIR_OUTPUT,
+    PNET_DIR_OUTPUT,
+  };
+
+  for (size_t i = 1U; i < PNET_MAX_MODULES; i++)
+  {
+    pf_slot_t *p_slot               = &(p_api->slots[i]);
+    p_slot->in_use                  = true;
+    p_slot->exp_module_ident_number = idents[i];
+    p_slot->module_ident_number     = idents[i];
+    p_slot->plug_state              = PF_MOD_PLUG_PROPER_MODULE;
+    p_slot->slot_nbr                = i;
+
+    pf_subslot_t *p_subslot               = &(p_slot->subslots[0]);
+    p_subslot->in_use                     = true;
+    p_subslot->subslot_nbr                = 1;
+    p_subslot->exp_submodule_ident_number = PNET_SUBMOD_CUSTOM_IDENT;
+    p_subslot->submodule_ident_number     = PNET_SUBMOD_CUSTOM_IDENT;
+    p_subslot->direction                  = dirs[i];
+    p_subslot->submodule_state.ident_info = PF_SUBMOD_PLUG_OK;
+  }
 }
 
 /************************* Utilities ******************************************/
-
-static void main_timer_tick(
-   os_timer_t              *timer,
-   void                    *arg)
+void main_timer_tick(
+  os_timer_t *timer,
+  void       *arg)
 {
-   app_data_t              *p_appdata = (app_data_t*)arg;
+  app_data_and_stack_t *appdata_and_stack = (app_data_and_stack_t *)arg;
+  app_data_t           *p_appdata = appdata_and_stack->appdata;
 
-   os_event_set(p_appdata->main_events, EVENT_TIMER);
+  os_event_set(p_appdata->main_events, EVENT_TIMER);
 }
 
-void show_usage()
+void *timer_thread_func(void *arg)
 {
-   printf("\nDemo application for p-net Profinet device stack.\n");
-   printf("\n");
-   printf("Wait for connection from IO-controller.\n");
-   printf("Then read buttons (input) and send to controller.\n");
-   printf("Listen for LED output (from controller) and set LED state.\n");
-   printf("It will also send a counter value (useful also without\n");
-   printf("buttons and LED).\n");
-   printf("Button1 value is sent in the periodic data. Button2 triggers an alarm.\n");
-   printf("\n");
-   printf("The LED is controlled by writing '1' or '0' to the control file,\n");
-   printf("for example /sys/class/gpio/gpio17/value\n");
-   printf("A pressed button should be indicated by that the first character in \n");
-   printf("the control file is '1'. \n");
-   printf("Make sure to activate the appropriate GPIO files by exporting them. \n");
-   printf("If no hardware-controlling files in /sys are available, you can\n");
-   printf("still try the functionality by using plain text files.\n");
-   printf("\n");
-   printf("Assumes the default gateway is found on .1 on same subnet as the IP address.\n");
-   printf("\n");
-   printf("Optional arguments:\n");
-   printf("   --help       Show this help text and exit\n");
-   printf("   -h           Show this help text and exit\n");
-   printf("   -v           Incresase verbosity\n");
-   printf("   -i INTERF    Set Ethernet interface name. Defaults to %s\n", APP_DEFAULT_ETHERNET_INTERFACE);
-   printf("   -s NAME      Set station name. Defaults to %s\n", APP_DEFAULT_STATION_NAME);
-   printf("   -l FILE      Path to control LED. Defaults to not control any LED.\n");
-   printf("   -b FILE      Path to read button1. Defaults to not read button1.\n");
-   printf("   -d FILE      Path to read button2. Defaults to not read button2.\n");
+  app_data_and_stack_t *appdata_and_stack = (app_data_and_stack_t *)arg;
+  app_data_t           *p_appdata = appdata_and_stack->appdata;
+  pnet_t               *net = appdata_and_stack->net;
+
+  rpmalloc_thread_initialize();
+
+  struct timespec timeAbs;
+  clock_gettime(CLOCK_REALTIME, &timeAbs);
+  int64_t tCur = (int64_t)(timeAbs.tv_sec) * 1000000000ll + (int64_t)(timeAbs.tv_nsec);
+
+  int64_t cycleTimeIn_ns = (int64_t)(TICK_INTERVAL_US * 1000ll);
+  tCur += cycleTimeIn_ns;
+  timeAbs.tv_sec = (time_t)(tCur / 1000000000ll);
+  timeAbs.tv_nsec = tCur - (time_t)(timeAbs.tv_sec) * 1000000000ll;
+
+  while(p_appdata->running != false)
+  {
+    clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &timeAbs, NULL);
+
+    /* Set data for custom input modules, if any */
+    setInputDataToController(net, p_appdata);
+
+    /* Read data from first of the custom output modules, if any */
+    getOutputDataFromController(net, p_appdata);
+
+    pnet_handle_periodic(net);
+
+    tCur += cycleTimeIn_ns;
+    timeAbs.tv_sec = (time_t)(tCur / 1000000000ll);
+    timeAbs.tv_nsec = tCur - (time_t)(timeAbs.tv_sec) * 1000000000ll;
+  }
+
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("[INFO ] timer_thread_func terminated\n");
+  }
+
+  rpmalloc_thread_finalize();
+
+  return NULL;
 }
 
-
-/**
- * Parse command line arguments
- *
- * @param argc      In: Number of arguments
- * @param argv      In: Arguments
- * @return Parsed arguments
-*/
-struct cmd_args parse_commandline_arguments(int argc, char *argv[])
+void *pn_main(void *arg)
 {
-   /* Special handling of long argument */
-   if (argc > 1)
-   {
-      if (strcmp(argv[1], "--help") == 0)
+  uint32_t mask = EVENT_READY_FOR_DATA | EVENT_TIMER | EVENT_ALARM | EVENT_ABORT | EVENT_TERMINATE;
+  uint32_t flags = 0;
+  uint32_t tick_ctr_update_data = 0;
+
+  app_data_and_stack_t *appdata_and_stack = (app_data_and_stack_t *)arg;
+  app_data_t           *p_appdata         = appdata_and_stack->appdata;
+  pnet_t               *net               = appdata_and_stack->net;
+
+  rpmalloc_thread_initialize();
+
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("Waiting for connect request from IO-controller\n");
+  }
+
+  /* Main loop */
+  while(p_appdata->running != false)
+  {
+    os_event_wait(p_appdata->main_events, mask, &flags, OS_WAIT_FOREVER);
+    if (flags & EVENT_READY_FOR_DATA)
+    {
+      os_event_clr(p_appdata->main_events, EVENT_READY_FOR_DATA); /* Re-arm */
+      handleReadyForDataEvent(net, p_appdata);
+    }
+    else if (flags & EVENT_ALARM)
+    {
+      os_event_clr(p_appdata->main_events, EVENT_ALARM); /* Re-arm */
+      handleAlarmEvent(net, p_appdata);
+    }
+    else if (flags & EVENT_TIMER)
+    {
+      os_event_clr(p_appdata->main_events, EVENT_TIMER); /* Re-arm */
+      const uint64_t timeStart = timeGetTime64_ns();
+      tick_ctr_update_data += TICK_INTERVAL_US;
+
+      /* Set input and output data every 8 ms */
+      if ((p_appdata->main_arep != UINT32_MAX) && tick_ctr_update_data >= DATA_INTERVAL_US)
       {
-         show_usage();
-         exit(EXIT_CODE_ERROR);
+        tick_ctr_update_data = 0;
+
+        /* Set data for custom input modules, if any */
+        setInputDataToController(net, p_appdata);
+
+        /* Read data from first of the custom output modules, if any */
+        getOutputDataFromController(net, p_appdata);
       }
-   }
 
-   /* Default values */
-   struct cmd_args output_arguments;
-   strcpy(output_arguments.path_led, "");
-   strcpy(output_arguments.path_button1, "");
-   strcpy(output_arguments.path_button2, "");
-   strcpy(output_arguments.station_name, APP_DEFAULT_STATION_NAME);
-   strcpy(output_arguments.eth_interface, APP_DEFAULT_ETHERNET_INTERFACE);
-   output_arguments.verbosity = 0;
-
-   int option;
-   while ((option = getopt(argc, argv, "hvi:s:l:b:d:")) != -1) {
-      switch (option) {
-      case 'v':
-         output_arguments.verbosity++;
-         break;
-      case 'i':
-         strcpy(output_arguments.eth_interface, optarg);
-         break;
-      case 's':
-         strcpy(output_arguments.station_name, optarg);
-         break;
-      case 'l':
-         strcpy(output_arguments.path_led, optarg);
-         break;
-      case 'b':
-         strcpy(output_arguments.path_button1, optarg);
-         break;
-      case 'd':
-         strcpy(output_arguments.path_button2, optarg);
-         break;
-      case 'h':
-      case '?':
-      default:
-         show_usage();
-         exit(EXIT_CODE_ERROR);
-      }
-   }
-
-   return output_arguments;
-}
-
-/**
- * Check if network interface exists
- *
- * @param name      In: Name of network interface
- * @return true if interface exists
-*/
-bool does_network_interface_exist(const char* name)
-{
-   uint32_t index = if_nametoindex(name);
-
-   return index != 0;
-}
-
-/**
- * Check if file exists
- *
- * @param filepath      In: Path to file
- * @return true if file exists
-*/
-bool does_file_exist(const char*  filepath)
-{
-   struct stat statbuffer;
-
-   return (stat (filepath, &statbuffer) == 0);
-}
-
-/**
- * Read a bool from a file
- *
- * @param filepath      In: Path to file
- * @return true if file exists and the first character is '1'
-*/
-bool read_bool_from_file(const char*  filepath)
-{
-   FILE *fp;
-   char ch;
-   int eof_indicator;
-
-   fp = fopen(filepath, "r");
-   if (fp == NULL)
-   {
-      return false;
-   }
-
-   ch = fgetc(fp);
-   eof_indicator = feof(fp);
-   fclose (fp);
-
-   if (eof_indicator)
-   {
-      return false;
-   }
-   return ch == '1';
-}
-
-/**
- * Write a bool to a file
- *
- * Writes 1 for true and 0 for false. Adds a newline.
- *
- * @param filepath      In: Path to file
- * @param value         In: The value to write
- * @return 0 on success and
- *         -1 if an error occured
-*/
-int write_bool_to_file(const char*  filepath, bool value)
-{
-   FILE *fp;
-   char* outputstring = value ? "1\n" : "0\n";
-   fp = fopen(filepath, "w");
-   if (fp == NULL)
-   {
-      return -1;
-   }
-   int result = fputs(outputstring, fp);
-   fclose (fp);
-   if (result == EOF){
-      return -1;
-   }
-   return 0;
-}
-
-/**
- * Print contents of a buffer
- *
- * @param bytes      In: inputbuffer
- * @param len        In: Number of bytes to print
-*/
-void print_bytes(uint8_t *bytes, int32_t len)
-{
-   printf("  Bytes: ");
-   for (int i = 0; i < len; i++)
-   {
-      printf("%02X ", bytes[i]);
-   }
-   printf("\n");
-}
-
-/**
- * Copy an IP address (as an integer) to a struct
- *
- * @param destination_struct  Out: destination
- * @param ip                  In: IP address
-*/
-void copy_ip_to_struct(pnet_cfg_ip_addr_t* destination_struct, uint32_t ip)
-{
-   destination_struct->a = (ip & 0xFF);
-   destination_struct->b = ((ip >> 8) & 0xFF);
-   destination_struct->c = ((ip >> 16) & 0xFF);
-   destination_struct->d = ((ip >> 24) & 0xFF);
-}
-
-/**
- * Print an IPv4 address (without newline)
- *
- * @param ip      In: IP address
-*/
-void print_ip_address(uint32_t ip){
-   printf("%d.%d.%d.%d",
-      (ip & 0xFF),
-      ((ip >> 8) & 0xFF),
-      ((ip >> 16) & 0xFF),
-      ((ip >> 24) & 0xFF)
-   );
-}
-
-/**
- * Read the IP address as an integer. For IPv4.
- *
- * @param interface_name      In: Name of network interface
- * @return IP address on success and
- *         0 if an error occured
-*/
-uint32_t read_ip_address(char* interface_name)
-{
-   int fd;
-   struct ifreq ifr;
-   uint32_t ip;
-
-   fd = socket (AF_INET, SOCK_DGRAM, 0);
-   ifr.ifr_addr.sa_family = AF_INET;
-   strncpy (ifr.ifr_name, interface_name, IFNAMSIZ - 1);
-   ioctl (fd, SIOCGIFADDR, &ifr);
-   ip = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
-   close (fd);
-   return ip;
-}
-
-/**
- * Read the MAC address.
- *
- * @param interface_name      In: Name of network interface
- * @param mac_addr            Out: MAC address
- *
- * @return 0 on success and
- *         -1 if an error occured
-*/
-int read_mac_address(char *interface_name, pnet_ethaddr_t *mac_addr)
-{
-   int fd;
-   int ret = 0;
-   struct ifreq ifr;
-
-   fd = socket (AF_INET, SOCK_DGRAM, 0);
-
-   ifr.ifr_addr.sa_family = AF_INET;
-   strncpy (ifr.ifr_name, interface_name, IFNAMSIZ - 1);
-
-   ret = ioctl(fd, SIOCGIFHWADDR, &ifr);
-   if (ret == 0){
-      memcpy(mac_addr->addr, ifr.ifr_hwaddr.sa_data, 6);
-   }
-   close (fd);
-   return ret;
- }
-
-/**
- * Read the netmask as an integer. For IPv4.
- *
- * @param interface_name      In: Name of network interface
- * @return netmask
-*/
-uint32_t read_netmask(char* interface_name)
-{
-
-   int fd;
-   struct ifreq ifr;
-   uint32_t netmask;
-
-   fd = socket (AF_INET, SOCK_DGRAM, 0);
-
-   ifr.ifr_addr.sa_family = AF_INET;
-   strncpy (ifr.ifr_name, interface_name, IFNAMSIZ - 1);
-   ioctl (fd, SIOCGIFNETMASK, &ifr);
-   netmask = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
-   close (fd);
-
-   return netmask;
-}
-
-/**
- * Read the default gateway address as an integer. For IPv4.
- *
- * Assumes the default gateway is found on .1 on same subnet as the IP address.
- *
- * @param interface_name      In: Name of network interface
- * @return netmask
-*/
-uint32_t read_default_gateway(char* interface_name)
-{
-   /* TODO Read the actual default gateway (somewhat complicated) */
-
-   uint32_t ip;
-   uint32_t gateway;
-
-   ip = read_ip_address(interface_name);
-   gateway = (ip & 0x00FFFFFF) | 0x01000000;
-
-   return gateway;
-}
-
-void pn_main (void * arg)
-{
-   app_data_t     *p_appdata;
-   app_data_and_stack_t *appdata_and_stack;
-   pnet_t         *net;
-   int            ret = -1;
-   uint32_t       mask = EVENT_READY_FOR_DATA | EVENT_TIMER | EVENT_ALARM | EVENT_ABORT;
-   uint32_t       flags = 0;
-   bool           button1_pressed = false;
-   bool           button2_pressed = false;
-   bool           button2_pressed_previous = false;
-   bool           led_state = false;
-   bool           received_led_state = false;
-   uint32_t       tick_ctr_buttons = 0;
-   uint32_t       tick_ctr_update_data = 0;
-   static uint8_t data_ctr = 0;
-   uint16_t       slot = 0;
-   uint8_t        outputdata[64];
-   uint8_t        outputdata_iops;
-   uint16_t       outputdata_length;
-   bool           outputdata_is_updated = false;
-   uint8_t        alarm_payload[APP_ALARM_PAYLOAD_SIZE] = { 0 };
-
-
-   appdata_and_stack = (app_data_and_stack_t*)arg;
-   p_appdata = appdata_and_stack->appdata;
-   net = appdata_and_stack->net;
-
-   if (p_appdata->arguments.verbosity > 0)
-   {
-      printf("Waiting for connect request from IO-controller\n");
-   }
-
-   /* Main loop */
-   for (;;)
-   {
-      os_event_wait(p_appdata->main_events, mask, &flags, OS_WAIT_FOREVER);
-      if (flags & EVENT_READY_FOR_DATA)
+      pnet_handle_periodic(net);
+      const uint64_t timeEnd = timeGetTime64_ns();
+      if (timeEnd - timeStart < (TICK_INTERVAL_US * 400))
       {
-         os_event_clr(p_appdata->main_events, EVENT_READY_FOR_DATA); /* Re-arm */
-
-         /* Send appl ready to profinet stack. */
-         printf("Application will signal that it is ready for data.\n");
-         ret = pnet_application_ready(net, p_appdata->main_arep);
-         if (ret != 0)
-         {
-            printf("Error returned when application telling that it is ready for data. Have you set IOCS or IOPS for all subslots?\n");
-         }
-
-         /*
-          * cm_ccontrol_cnf(+/-) is indicated later (app_state_ind(DATA)), when the
-          * confirmation arrives from the controller.
-          */
+        os_usleep(TICK_INTERVAL_US / 2);
       }
-      else if (flags & EVENT_ALARM)
+    }
+    else if (flags & EVENT_ABORT)
+    {
+      p_appdata->main_arep = UINT32_MAX;
+      p_appdata->alarm_allowed = true;
+      p_appdata->b_disp_wrong_offset_warning = true;
+      os_event_clr(p_appdata->main_events, EVENT_ABORT); /* Re-arm */
+      if (p_appdata->arguments.verbosity > 0)
       {
-         pnet_pnio_status_t      pnio_status = { 0,0,0,0 };
-
-         os_event_clr(p_appdata->main_events, EVENT_ALARM); /* Re-arm */
-
-         ret = pnet_alarm_send_ack(net, p_appdata->main_arep, &pnio_status);
-         if (ret != 0)
-         {
-            printf("Error when sending alarm ACK. Error: %d\n", ret);
-         }
-         else if (p_appdata->arguments.verbosity > 0)
-         {
-            printf("Alarm ACK sent\n");
-         }
+        printf("Aborting the application\n");
       }
-      else if (flags & EVENT_TIMER)
-      {
-         os_event_clr(p_appdata->main_events, EVENT_TIMER); /* Re-arm */
-         tick_ctr_buttons++;
-         tick_ctr_update_data++;
-
-         /* Read buttons every 100 ms */
-         if ((p_appdata->main_arep != UINT32_MAX) && (tick_ctr_buttons > 100))
-         {
-            tick_ctr_buttons = 0;
-            if (p_appdata->arguments.path_button1[0] != '\0')
-            {
-               button1_pressed = read_bool_from_file(p_appdata->arguments.path_button1);
-            }
-            if (p_appdata->arguments.path_button2[0] != '\0')
-            {
-               button2_pressed = read_bool_from_file(p_appdata->arguments.path_button2);
-            }
-         }
-
-         /* Set input and output data every 10ms */
-         if ((p_appdata->main_arep != UINT32_MAX) && (tick_ctr_update_data > 10))
-         {
-            tick_ctr_update_data = 0;
-
-            /* Input data (for sending to IO-controller) */
-            /* Lowest 7 bits: Counter    Most significant bit: Button1 */
-            p_appdata->inputdata[0] = data_ctr++;
-            if (button1_pressed)
-            {
-               p_appdata->inputdata[0] |= 0x80;
-            }
-            else
-            {
-               p_appdata->inputdata[0] &= 0x7F;
-            }
-
-            /* Set data for custom input modules, if any */
-            for (slot = 0; slot < PNET_MAX_MODULES; slot++)
-            {
-               if (p_appdata->custom_input_slots[slot] == true)
-               {
-                  (void)pnet_input_set_data_and_iops(net, APP_API, slot, PNET_SUBMOD_CUSTOM_IDENT, p_appdata->inputdata,  sizeof(p_appdata->inputdata), PNET_IOXS_GOOD);
-               }
-            }
-
-            /* Output data, for LED output */
-            if (p_appdata->arguments.path_led[0] != '\0')
-            {
-
-               /* Read data from first of the custom output modules, if any */
-               for (slot = 0; slot < PNET_MAX_MODULES; slot++)
-               {
-                  if (p_appdata->custom_output_slots[slot] == true)
-                  {
-                     outputdata_length = sizeof(outputdata);
-                     pnet_output_get_data_and_iops(net, APP_API, slot, PNET_SUBMOD_CUSTOM_IDENT, &outputdata_is_updated, outputdata, &outputdata_length, &outputdata_iops);
-                     break;
-                  }
-               }
-
-               /* Set LED state */
-               if (outputdata_is_updated == true && outputdata_iops == PNET_IOXS_GOOD)
-               {
-                  if (outputdata_length == APP_DATASIZE_OUTPUT)
-                  {
-                     received_led_state = (outputdata[0] & 0x80) > 0;  /* Use most significant bit */
-                     if (received_led_state != led_state)
-                     {
-                        led_state = received_led_state;
-                        if (p_appdata->arguments.verbosity > 0)
-                        {
-                           printf("Changing LED state: %d\n", led_state);
-                        }
-                        if (write_bool_to_file(p_appdata->arguments.path_led, led_state) != 0)
-                        {
-                           printf("Failed to write to LED file: %s\n", p_appdata->arguments.path_led);
-                        };
-                     }
-                  }
-                  else
-                  {
-                     printf("Wrong outputdata length: %u\n", outputdata_length);
-                  }
-
-               }
-            }
-         }
-
-         /* Create an alarm on first input slot (if any) when button 2 is pressed/released */
-         if (p_appdata->main_arep != UINT32_MAX)
-         {
-            if ((button2_pressed == true) && (button2_pressed_previous == false) && (p_appdata->alarm_allowed == true))
-            {
-               alarm_payload[0]++;
-               for (slot = 0; slot < PNET_MAX_MODULES; slot++)
-               {
-                  if (p_appdata->custom_input_slots[slot] == true)
-                  {
-                     printf("Sending process alarm from slot %u subslot %u to IO-controller. Payload: 0x%x\n",
-                        slot,
-                        PNET_SUBMOD_CUSTOM_IDENT,
-                        alarm_payload[0]);
-                     pnet_alarm_send_process_alarm(
-                        net,
-                        p_appdata->main_arep,
-                        APP_API,
-                        slot,
-                        PNET_SUBMOD_CUSTOM_IDENT,
-                        APP_ALARM_USI,
-                        sizeof(alarm_payload),
-                        alarm_payload);
-                     break;
-                  }
-               }
-            }
-         }
-         button2_pressed_previous = button2_pressed;
-
-         pnet_handle_periodic(net);
-      }
-      else if (flags & EVENT_ABORT)
-      {
-         /* Reset main */
-         p_appdata->main_arep = UINT32_MAX;
-         p_appdata->alarm_allowed = true;
-         button1_pressed = false;
-         button2_pressed = false;
-         os_event_clr(p_appdata->main_events, EVENT_ABORT); /* Re-arm */
-         if (p_appdata->arguments.verbosity > 0)
-         {
-            printf("Aborting the application\n");
-         }
-      }
-   }
-   os_timer_destroy(p_appdata->main_timer);
-   os_event_destroy(p_appdata->main_events);
-   printf("Ending the application\n");
+    }
+    else if (flags & EVENT_TERMINATE)
+    {
+      break;
+    }
+  }
+  rpmalloc_thread_finalize();
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    printf("[INFO ] pn_main terminated\n");
+  }
+  return NULL;
 }
+
+//////////////////////////////////////////////////////////////////////////
+
+static void faulthand(int32_t sig)
+{
+  signal(sig, SIG_DFL);
+  kill(getpid(), sig);
+}
+
 
 /****************************** Main ******************************************/
 
 int main(int argc, char *argv[])
 {
-   pnet_t *net;
-   app_data_and_stack_t appdata_and_stack;
+  app_data_and_stack_t appdata_and_stack;
+  app_data_t appdata;
+  memset(&appdata, 0, sizeof(appdata));
+  appdata.alarm_allowed = true;
+  appdata.main_arep = UINT32_MAX;
+  appdata.b_disp_wrong_offset_warning = true;
+  /* Parse and display command line arguments */
+  appdata.arguments = parse_commandline_arguments(argc, argv);
+  printf("\n******* Starting TGMmini Profinet I/O application *******\n");
+  printf(  "***     Built " __DATE__ " " __TIME__ "                    ***\n");
+  printf(  "***     Using Profinet p-net stack by rt-labs.com     ***\n");
+  printf(  "***          (https://rt-labs.com/docs/pnet)          ***\n");
+  printf(  "***      and memory allocator by Mattias Jansson      ***\n");
+  printf(  "*******  (https://github.com/mjansson/rpmalloc)   *******\n\n");
 
-   app_data_t appdata;
-   appdata.app_param_1 = 0;
-   appdata.app_param_2 = 0;
-   appdata.alarm_allowed = true;
-   appdata.main_arep = UINT32_MAX;
-   appdata.main_events = NULL;
-   appdata.main_timer = NULL;
-   memset(appdata.inputdata, 0, sizeof(appdata.inputdata));
-   memset(appdata.custom_input_slots, 0, sizeof(appdata.custom_input_slots));
-   memset(appdata.custom_output_slots, 0, sizeof(appdata.custom_output_slots));
+  /* Read IP, netmask, gateway and MAC address from operating system */
+  if (!does_network_interface_exist(appdata.arguments.eth_interface))
+  {
+    printf("Error: The given Ethernet interface does not exist: %s\n", appdata.arguments.eth_interface);
+    exit(EXIT_CODE_ERROR);
+  }
 
-   /* Parse and display command line arguments */
-   appdata.arguments = parse_commandline_arguments(argc, argv);
+  uint32_t ip_int = read_ip_address(appdata.arguments.eth_interface);
+  if (ip_int == IP_INVALID)
+  {
+    printf("Error: Invalid IP address.\n");
+    exit(EXIT_CODE_ERROR);
+  }
+  appdata.def_ip = ip_int;
+  pnet_default_cfg.ip_sys_addr = ip_int;
 
-   printf("\n** Starting Profinet demo application **\n");
-   if (appdata.arguments.verbosity > 0)
-   {
-      printf("Number of slots:     %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
-      printf("P-net log level:     %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
-      printf("App verbosity level: %u\n", appdata.arguments.verbosity);
-      printf("Ethernet interface:  %s\n", appdata.arguments.eth_interface);
-      printf("Station name:        %s\n", appdata.arguments.station_name);
-      printf("LED file:            %s\n", appdata.arguments.path_led);
-      printf("Button1 file:        %s\n", appdata.arguments.path_button1);
-      printf("Button2 file:        %s\n", appdata.arguments.path_button2);
-   }
+  uint32_t netmask_int = read_netmask(appdata.arguments.eth_interface);
 
-   /* Read IP, netmask, gateway and MAC address from operating system */
-   if (!does_network_interface_exist(appdata.arguments.eth_interface))
-   {
-      printf("Error: The given Ethernet interface does not exist: %s\n", appdata.arguments.eth_interface);
-      exit(EXIT_CODE_ERROR);
-   }
+  uint32_t gateway_ip_int = read_default_gateway(appdata.arguments.eth_interface);
+  if (gateway_ip_int == IP_INVALID)
+  {
+    printf("Error: Invalid gateway IP address.\n");
+    exit(EXIT_CODE_ERROR);
+  }
 
-   uint32_t ip_int = read_ip_address(appdata.arguments.eth_interface);
-   if (ip_int == IP_INVALID)
-   {
-      printf("Error: Invalid IP address.\n");
-      exit(EXIT_CODE_ERROR);
-   }
+  pnet_ethaddr_t macbuffer;
+  int ret = read_mac_address(appdata.arguments.eth_interface, &macbuffer);
+  if (ret != 0)
+  {
+    printf("Error: Can not read MAC address for Ethernet interface %s\n", appdata.arguments.eth_interface);
+    exit(EXIT_CODE_ERROR);
+  }
 
-   uint32_t netmask_int = read_netmask(appdata.arguments.eth_interface);
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGINT);
+  sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGHUP);
+  pthread_sigmask(SIG_BLOCK, &mask, NULL);
 
-   uint32_t gateway_ip_int = read_default_gateway(appdata.arguments.eth_interface);
-   if (gateway_ip_int == IP_INVALID)
-   {
-      printf("Error: Invalid gateway IP address.\n");
-      exit(EXIT_CODE_ERROR);
-   }
+  signal(SIGSEGV, faulthand);
+  signal(SIGBUS, faulthand);
 
-   pnet_ethaddr_t macbuffer;
-   int ret = read_mac_address(appdata.arguments.eth_interface, &macbuffer);
-   if (ret != 0)
-   {
-      printf("Error: Can not read MAC address for Ethernet interface %s\n", appdata.arguments.eth_interface);
-      exit(EXIT_CODE_ERROR);
-   }
+  bool b_station_name_set_by_cmd_line = false;
+  bool b_set_ip_suite = false;
+  if (appdata.arguments.station_name[0] != '\0')
+  {
+    b_station_name_set_by_cmd_line = true;
+  }
 
-   if (appdata.arguments.verbosity > 0)
-   {
-      printf("MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
+  if (appdata.arguments.use_ip_settings == IP_SETTINGS_EMPTY)
+  {
+    ip_int = 0;
+    netmask_int = 0;
+    gateway_ip_int = 0;
+  }
+  else
+  {
+    char name[STATTION_NAME_SIZE];
+    os_ipaddr_t ip   = 0;
+    os_ipaddr_t mask = 0;
+    os_ipaddr_t gw   = 0;
+    os_get_ip_suite(&ip, &mask, &gw, name, &pnet_default_cfg);
+    if (b_station_name_set_by_cmd_line == false)
+    {
+      strcpy(appdata.arguments.station_name, name);
+    }
+    if (appdata.arguments.use_ip_settings == IP_SETTINGS_FILE)
+    {
+      ip_int         = ip;
+      netmask_int    = mask;
+      gateway_ip_int = gw;
+      b_set_ip_suite = true;
+    }
+
+  }
+
+  if (open_plc_memory(&appdata) == false)
+  {
+    printf("Error: Shared PLC memory cannot be opened.\n");
+    exit(EXIT_CODE_ERROR);
+  }
+
+  printf("Number of slots:    %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
+  printf("Log level:          %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
+  printf("Verbosity level:    %u\n", appdata.arguments.verbosity);
+  printf("Ethernet interface: %s\n", appdata.arguments.eth_interface);
+  print_ip_address("Linux IP address:   ", appdata.def_ip);
+  printf("Station name:       %s\n", appdata.arguments.station_name);
+  printf("MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
          macbuffer.addr[0],
          macbuffer.addr[1],
          macbuffer.addr[2],
          macbuffer.addr[3],
          macbuffer.addr[4],
          macbuffer.addr[5]);
-      printf("IP address:         ");
-      print_ip_address(ip_int);
-      printf("\nNetmask:            ");
-      print_ip_address(netmask_int);
-      printf("\nGateway:            ");
-      print_ip_address(gateway_ip_int);
-      printf("\n\n");
-   }
+  print_ip_address("IP address:         ", ip_int);
+  print_ip_address("Netmask:            ", netmask_int);
+  print_ip_address("Gateway:            ", gateway_ip_int);
+  printf("\n\n");
 
-   /* Set IP, gateway and station name */
-   strcpy(pnet_default_cfg.im_0_data.order_id, "12345");
-   strcpy(pnet_default_cfg.im_0_data.im_serial_number, "00001");
-   copy_ip_to_struct(&pnet_default_cfg.ip_addr, ip_int);
-   copy_ip_to_struct(&pnet_default_cfg.ip_gateway, gateway_ip_int);
-   copy_ip_to_struct(&pnet_default_cfg.ip_mask, netmask_int);
-   strcpy(pnet_default_cfg.station_name, appdata.arguments.station_name);
-   memcpy(pnet_default_cfg.eth_addr.addr, macbuffer.addr, sizeof(pnet_ethaddr_t));
-   pnet_default_cfg.cb_arg = (void*) &appdata;
+  /* Set IP and gateway */
+  strcpy(pnet_default_cfg.im_0_data.order_id, "2707");
+  strcpy(pnet_default_cfg.im_0_data.im_serial_number, "00001");
+  copy_ip_to_struct(&pnet_default_cfg.ip_addr, ip_int);
+  copy_ip_to_struct(&pnet_default_cfg.ip_gateway, gateway_ip_int);
+  copy_ip_to_struct(&pnet_default_cfg.ip_mask, netmask_int);
+  strcpy(pnet_default_cfg.station_name, appdata.arguments.station_name);
+  memcpy(pnet_default_cfg.eth_addr.addr, macbuffer.addr, sizeof(pnet_ethaddr_t));
+  pnet_default_cfg.cb_arg = (void *)&appdata;
+  memset(&thisDevice, 0, sizeof(thisDevice));
+  fillDefaultIM0FilterData(&thisDevice);
 
-   /* Paths for LED and button control files */
-   if (appdata.arguments.path_led[0] != '\0')
-   {
-      if (!does_file_exist(appdata.arguments.path_led))
-      {
-         printf("Error: The given LED output file does not exist: %s\n",
-            appdata.arguments.path_led);
-         exit(EXIT_CODE_ERROR);
-      }
+  appdata.running = true;
+  os_init(&appdata);
+  os_set_led(&appdata, 0, false);
 
-      /* Turn off LED initially */
-      if (write_bool_to_file(appdata.arguments.path_led, false) != 0)
-      {
-         printf("Error: Could not write to LED output file: %s\n",
-            appdata.arguments.path_led);
-         exit(EXIT_CODE_ERROR);
-      }
-   }
+  if ((ret = mlockall(MCL_CURRENT | MCL_FUTURE)) == -1)
+  {
+    printf("Error: mlockall failed with error %i\n", ret);
+    exit(EXIT_CODE_ERROR);
+  }
 
-   if (appdata.arguments.path_button1[0] != '\0')
-   {
-      if (!does_file_exist(appdata.arguments.path_button1))
-      {
-         printf("Error: The given input file for button1 does not exist: %s\n",
-            appdata.arguments.path_button1);
-         exit(EXIT_CODE_ERROR);
-      }
-   }
+  /* Initialize Profinet stack */
+  pnet_t *net = pnet_init(appdata.arguments.eth_interface, TICK_INTERVAL_US, &pnet_default_cfg);
 
-   if (appdata.arguments.path_button2[0] != '\0')
-   {
-      if (!does_file_exist(appdata.arguments.path_button2))
-      {
-         printf("Error: The given input file for button2 does not exist: %s\n",
-            appdata.arguments.path_button2);
-         exit(EXIT_CODE_ERROR);
-      }
-   }
+  if (net == NULL)
+  {
+    printf("Failed to initialize p-net. Do you have enough Ethernet interface permission?\n");
+    close_plc_memory();
+    rpmalloc_finalize();
+    exit(EXIT_CODE_ERROR);
+  }
 
-   /* Initialize profinet stack */
-   net = pnet_init(appdata.arguments.eth_interface, TICK_INTERVAL_US, &pnet_default_cfg);
-   if (net == NULL)
-   {
-      printf("Failed to initialize p-net. Do you have enough Ethernet interface permission?\n");
-      exit(EXIT_CODE_ERROR);
-   }
-   appdata_and_stack.appdata = &appdata;
-   appdata_and_stack.net = net;
+  if (b_set_ip_suite)
+  {
+    os_set_ip_suite(&appdata, __builtin_bswap32(ip_int), netmask_int, gateway_ip_int, false);
+  }
 
-   /* Initialize timer and Profinet stack */
-   appdata.main_events = os_event_create();
-   appdata.main_timer  = os_timer_create(TICK_INTERVAL_US, main_timer_tick, (void*)&appdata, false);
+  appdata_and_stack.appdata = &appdata;
+  appdata_and_stack.net = net;
 
-   os_thread_create("pn_main", APP_PRIORITY, APP_STACKSIZE, pn_main, (void*)&appdata_and_stack);
-   os_timer_start(appdata.main_timer);
+  /* Initialize timer */
+  appdata.main_events = os_event_create();
+  appdata.main_thread = os_thread_create("pn_main", APP_PRIO, APP_STACKSIZE, pn_main, (void *)&appdata_and_stack);
 
-   for(;;)
-      os_usleep(APP_MAIN_SLEEPTIME_US);
+#if 0
+  appdata.main_timer = os_timer_create(TICK_INTERVAL_US, main_timer_tick, (void *)&appdata_and_stack, false);
+  os_timer_start(appdata.main_timer);
+#else
+  appdata.timer_thread = os_thread_create("os_timer", TIMER_PRIO, APP_STACKSIZE, timer_thread_func, (void *)&appdata_and_stack);
+#endif // _DEBUG
 
-   return 0;
+  // wait for Ctrl-C (SIGTERM) to finish
+  int sig = 0;
+  __STD(sigwait(&mask, &sig));
+
+  os_event_set(appdata.main_events, EVENT_TERMINATE);  
+  appdata.running = false;
+  if (appdata.arguments.verbosity > 0)
+  {
+    printf("\n[INFO ] finishing...\n");
+  }
+
+  os_timer_destroy(appdata.main_timer); 
+  close_plc_memory();
+  os_set_led(&appdata, 0, true);
+  os_exit(&appdata);
+
+  printf("\n** TGMmini Profinet I/O application finished **\n");
+
+  return 0;
 }
+

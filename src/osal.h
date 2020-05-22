@@ -28,6 +28,14 @@ extern "C"
 
 #include "osal_sys.h"
 #include "cc.h"
+#include "rpmalloc.h"
+#include "pnet_api.h"
+#include "pf_types.h"
+
+// priorities
+#define TIMER_PRIO    11
+#define ETH_PRIO       9
+#define APP_PRIO       5
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b)) ? (a) : (b)
@@ -94,6 +102,7 @@ enum os_eth_type {
   OS_ETHTYPE_LLDP      = 0x88CCU,
 };
 
+#define OS_PF_PNET_SERVER_PORT   0xC000 /*  */
 #define OS_PF_RPC_SERVER_PORT    0x8894 /* PROFInet Context Manager */
 #define OS_PF_SNMP_SERVER_PORT   161 /* snmp */
 
@@ -114,18 +123,20 @@ enum os_eth_type {
 #define OS_IPADDR_BROADCAST    ((uint32_t)0xffffffffUL)
 #endif
 
-typedef uint32_t os_ipaddr_t;
-typedef uint16_t os_ipport_t;
+void os_init(void *arg);
+void os_exit(void *arg);
 
 int os_snprintf (char * str, size_t size, const char * fmt, ...) CC_FORMAT (3,4);
 void os_log (int type, const char * fmt, ...) CC_FORMAT (2,3);
 void * os_malloc (size_t size);
+void os_free(void *ptr);
 
 void os_usleep (uint32_t us);
-uint32_t os_get_current_time_us (void);
+uint64_t os_get_current_time_us (void);
+void os_get_current_timestamp(pf_log_book_ts_t *p_ts);
 
 os_thread_t * os_thread_create (const char * name, int priority,
-        int stacksize, void (*entry) (void * arg), void * arg);
+        int stacksize, void * (*entry) (void * arg), void * arg);
 
 os_mutex_t * os_mutex_create (void);
 void os_mutex_lock (os_mutex_t * mutex);
@@ -138,7 +149,7 @@ void os_sem_signal (os_sem_t * sem);
 void os_sem_destroy (os_sem_t * sem);
 
 os_event_t * os_event_create (void);
-int os_event_wait (os_event_t * event, uint32_t mask, uint32_t * value, uint32_t time);
+int os_event_wait (os_event_t * event, uint32_t mask, uint32_t * value, uint32_t time_in_us);
 void os_event_set (os_event_t * event, uint32_t value);
 void os_event_clr (os_event_t * event, uint32_t value);
 void os_event_destroy (os_event_t * event);
@@ -155,7 +166,7 @@ void os_timer_start (os_timer_t * timer);
 void os_timer_stop (os_timer_t * timer);
 void os_timer_destroy (os_timer_t * timer);
 
-os_buf_t * os_buf_alloc(uint16_t length);
+os_buf_t * os_buf_alloc(uint32_t length);
 void os_buf_free(os_buf_t *p);
 uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment);
 
@@ -198,45 +209,45 @@ int os_udp_recvfrom(uint32_t id,
       int size);
 void os_udp_close(uint32_t id);
 
-int os_get_ip_suite(
-   os_ipaddr_t             *p_ipaddr,
-   os_ipaddr_t             *p_netmask,
-   os_ipaddr_t             *p_gw,
-   const char              **p_device_name);
+int os_udp_sendto_raw(pnet_t *net,
+                      os_ipaddr_t src_addr,
+                      os_ipport_t src_port,
+                      os_ipaddr_t dst_addr,
+                      os_ipport_t dst_port,
+                      const uint8_t *data,
+                      int size);
 
-/**
- * Set network parameters (IP address, netmask etc)
- *
- * For example:
- *
- * IP address        Represented by
- * 1.0.0.0           0x01000000 = 16777216
- * 0.0.0.1           0x00000001 = 1
- *
- * @param interface_name      In: Ethernet interface name, for example eth0
- * @param p_ipaddr            In: IPv4 address
- * @param p_netmask           In: Netmask
- * @param p_gw                In: Default gateway
- * @param hostname            In: Host name, for example my_laptop_4
- * @param permanent           In: 1 if changes are permanent, or 0 if temportary
- * @return  0  if the operation succeeded.
- *          -1 if an error occurred.
- */
+int os_get_ip_suite(
+  os_ipaddr_t *p_ipaddr,
+  os_ipaddr_t *p_netmask,
+  os_ipaddr_t *p_gw,
+  char        *p_device_name,
+  pnet_cfg_t *p_device_cfg);
+
 int os_set_ip_suite(
-   const char              *interface_name,
-   os_ipaddr_t             *p_ipaddr,
-   os_ipaddr_t             *p_netmask,
-   os_ipaddr_t             *p_gw,
-   const char              *hostname,
-   bool                    permanent);
+  void       *arg,
+  os_ipaddr_t ipaddr,
+  os_ipaddr_t netmask,
+  os_ipaddr_t gw,
+  bool        b_temporary);
+
+int os_set_station_name(
+  void       *arg,
+  const char *name,
+  bool        b_temporary);
+
+// save the im1 - im3 data
+int os_save_im_data(pnet_t *net);
 
 void os_set_led(
-   uint16_t                id,         /* Starting from 0 */
-   bool                    on);
+  void *arg,
+  uint16_t                id,         /* Starting from 0 */
+  bool                    on);
 
 void os_get_button(
-   uint16_t                id,         /* Starting from 0 */
-   bool                    *p_pressed);
+  void *arg,
+  uint16_t                id,         /* Starting from 0 */
+  bool *p_pressed);
 
 #ifdef __cplusplus
 }

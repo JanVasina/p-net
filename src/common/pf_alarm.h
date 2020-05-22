@@ -223,6 +223,18 @@ int pf_alarm_alpmr_alarm_ack(
 void pf_alarm_show(
    pf_ar_t                 *p_ar);
 
+//**
+// * Directl send Alarm.
+// *
+// * @param net              InOut: The p-net stack instance
+// * @param p_pnio_status    In:   Detailed ACK information.
+// * @return  0  if operation succeeded.
+// *          -1 if an error occurred (or waiting for ACK from controller: re-try later).
+// */
+int pf_alarm_send(
+  pnet_t *net,
+  pnet_pnio_status_t *p_pnio_status);
+
 #ifdef __cplusplus
 }
 #endif

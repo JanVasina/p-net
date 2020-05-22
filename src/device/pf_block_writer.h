@@ -80,6 +80,21 @@ void pf_put_uint32(
    uint16_t                *p_pos);
 
 /**
+* Insert a 64-bit entity into a buffer
+* @param is_big_endian    In:   Endianness of the destination buffer.
+* @param val              In:   The value to insert.
+* @param res_len          In:   Size of destination buffer.
+* @param p_bytes          Out:  Destination buffer.
+* @param p_pos            InOut:Position in destination buffer.
+*/
+void pf_put_uint64(
+  bool                    is_big_endian,
+  uint64_t                val,
+  uint16_t                res_len,
+  uint8_t                 *p_bytes,
+  uint16_t                *p_pos);
+
+/**
  * Insert an AR result block into a buffer.
  * @param is_big_endian    In:   Endianness of the destination buffer.
  * @param p_ar             In:   Contains the AR result to insert.
@@ -383,6 +398,25 @@ void pf_put_ident_data(
    uint8_t                 *p_bytes,
    uint16_t                *p_pos);
 
+// same routine as above pf_put_ident_data()
+// but uses default device config used when there is
+// no AR established (DAP-AR)
+// used only for PF_IDX_SLOT_REAL_ID_DATA read (index 0xc001)
+void pf_put_default_ident_data(
+  pnet_t                  *net,
+  bool                    is_big_endian,
+  uint8_t                 block_version_low,
+  pf_block_type_values_t  block_type,
+  pf_dev_filter_level_t   filter_level,
+  pf_dev_filter_level_t   stop_level,
+  pf_ar_t                 *p_ar,
+  uint32_t                api_id,
+  uint16_t                slot_nbr,
+  uint16_t                subslot_nbr,
+  uint16_t                res_len,
+  uint8_t                 *p_bytes,
+  uint16_t                *p_pos);
+
 /**
  * Insert a pnet status into a buffer
  * @param is_big_endian    In:   Endianness of the destination buffer.
@@ -627,6 +661,65 @@ void pf_put_diag_data(
    uint16_t                res_len,
    uint8_t                 *p_bytes,
    uint16_t                *p_pos);
+
+//**
+// * @internal
+// * Insert a UUID into a buffer.
+// * @param is_big_endian    In:   true if buffer is big-endian.
+// * @param p_uuid           In:   The UUID to insert.
+// * @param res_len          In:   Size of destination buffer.
+// * @param p_bytes          Out:  Destination buffer.
+// * @param p_pos            InOut:Position in destination buffer.
+// */
+void pf_put_uuid(
+  bool                    is_big_endian,
+  const pf_uuid_t        *p_uuid,
+  uint16_t                res_len,       /* Sizeof p_bytes buf */
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos);
+
+/**
+* @internal
+* Insert a block header into a buffer.
+* @param is_big_endian    In:   true if buffer is big-endian.
+* @param bh_type          In:   Block type.
+* @param bh_length        In:   Block length.
+* @param bh_ver_high      In:   Block version high.
+* @param bh_ver_low       In:   Block version low.
+* @param res_len          In:   Size of destination buffer.
+* @param p_bytes          Out:  Destination buffer.
+* @param p_pos            InOut:Position in destination buffer.
+*/
+void pf_put_block_header(
+  bool                    is_big_endian,
+  pf_block_type_values_t  bh_type,
+  uint16_t                bh_length,
+  uint8_t                 bh_ver_high,
+  uint8_t                 bh_ver_low,
+  uint16_t                res_len,
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos);
+
+/**
+* @internal
+* Insert a string into a buffer.
+*
+* This function inserts a fixed sized string into a buffer.
+* If the string is shorter than the destination size then the destination
+* is padded with spaces.
+* The destination buffer does not contain any terminating NUL byte.
+* @param p_src            In:   The string.
+* @param src_size         In:   The destination string size.
+* @param res_len          In:   Size of destination buffer.
+* @param p_bytes          Out:  Destination buffer.
+* @param p_pos            InOut:Position in destination buffer.
+*/
+void pf_put_str(
+  void                   *p_src,
+  uint16_t                src_size,
+  uint16_t                res_len,
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos);
 
 #ifdef __cplusplus
 }

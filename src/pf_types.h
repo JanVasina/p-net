@@ -54,6 +54,13 @@ static inline uint32_t atomic_fetch_sub(atomic_int *p, uint32_t v)
 }
 #endif
 
+// moved here from osal.h
+typedef uint32_t os_ipaddr_t;
+typedef uint16_t os_ipport_t;
+
+#define PF_FRAME_BUFFER_SIZE  1500
+
+#define PF_MAX_UDP_PAYLOAD_SIZE           1440
 /*********************** RPC header ******************************************/
 
 /** Magic UUID values */
@@ -171,6 +178,20 @@ typedef struct pf_rpc_header
    uint8_t           serial_low;
 } pf_rpc_header_t;
 
+typedef struct pf_epmv4_req
+{
+  uint32_t  inquiry_type;
+  uint32_t  object_reference;
+  pf_uuid_t object_uuid;
+  uint32_t  internal_reference;
+  pf_uuid_t interface_uuid;
+  uint16_t  interface_version_major;
+  uint16_t  interface_version_minor;
+  uint32_t  version_option;
+  uint32_t  entry_handle_attribute;
+  pf_uuid_t entry_handle_uuid;
+  uint32_t  max_entries;
+} pf_epmv4_req_t;
 
 /************************** Block header *************************************/
 
@@ -242,6 +263,16 @@ typedef enum pf_block_type_values
    PF_BT_XCONTROL_RDYRTC3_REQ          = 0x0117,
    PF_BT_PRMBEGIN_REQ                  = 0x0118,
    PF_BT_SUBMODULE_PRMBEGIN_REQ        = 0x0119,
+
+   PF_BT_PDPORT_DATA_CHECK             = 0x0200,
+   PF_BT_PDPORT_DATA_ADJUST            = 0x0202,
+   PF_BT_CHECK_PEERS                   = 0x020a,
+   PF_BT_PDPORT_DATA_REAL              = 0x020f,
+   PF_BT_PDINTF_REAL                   = 0x0240,
+   PF_BT_INTERFACE_ADJUST              = 0x0250,
+   PF_BT_PORT_STATISTICS               = 0x0251,
+
+   PF_BT_MULTIPLE_BLOCK_HEADER         = 0x0400,
 
    PF_BT_MAINTENANCE_ITEM              = 0x0f00,
 
@@ -690,7 +721,7 @@ typedef struct pf_scheduler_timeouts
    const char                    *p_name; /* For debugging only */
    bool                          in_use;  /* For debugging only */
 
-   uint32_t                      when;    /* absolute time of timeout */
+   uint64_t                      when; /* absolute time of timeout */
    uint32_t                      next;    /* Next in list */
    uint32_t                      prev;    /* Previous in list */
 
@@ -724,6 +755,8 @@ typedef struct pf_eth_frame_id_map
 } pf_eth_frame_id_map_t;
 
 
+#define STATTION_NAME_SIZE (240+1)
+
 /*
  * Each struct in pf_cmina_dcp_ase_t is carefully laid out in order to use
  * strncmp/memcmp in the DCP identity request and strncpy/memcpy in the
@@ -731,7 +764,7 @@ typedef struct pf_eth_frame_id_map
  */
 typedef struct pf_cmina_dcp_ase
 {
-   char                    name_of_station[240 + 1];  /* Terminated */
+   char                    name_of_station[STATTION_NAME_SIZE];  /* Terminated */
    char                    device_vendor[20+1];       /* Terminated */
    uint8_t                 device_role;               /* Only value "1" supported */
    uint16_t                device_initiative;
@@ -748,7 +781,7 @@ typedef struct pf_cmina_dcp_ase
 
    char                    port_name[14 + 1];         /* Terminated */
 
-   char                    manufacturer_specific_string[240 + 1];
+   char                    manufacturer_specific_string[STATTION_NAME_SIZE];
    pnet_ethaddr_t          mac_address;
    uint16_t                standard_gw_value;
 
@@ -758,7 +791,7 @@ typedef struct pf_cmina_dcp_ase
    struct
    {
       /* Nothing much yet */
-      char                 hostname[240+1];
+      char                 hostname[STATTION_NAME_SIZE];
    } dhcp_info;
 } pf_cmina_dcp_ase_t;
 
@@ -1241,15 +1274,20 @@ typedef struct pf_ppm
    int                     errline;
    uint32_t                errcnt;
 
-   pnet_ethaddr_t          sa;                  /* Source MAC address */
-   pnet_ethaddr_t          da;                  /* Destination MAC address (IO-controller) */
+   pnet_ethaddr_t          sa;
+   pnet_ethaddr_t          da;
 
    bool                    first_transmit;
 
    void                    *p_send_buffer;
    bool                    new_buf;             /* New data to be sent */
 
-   uint16_t                cycle;
+   uint32_t                cycle;
+   // each cycle will be increment by send_clock_factor * reduction_ratio
+   // for hard real-time OS the cycle value will be exactly the right value
+   // for soft real-time (Linux) the value will not correspond with the exact send time
+   // so we can use this increment and simulate hard RTOS
+   uint32_t                cycle_increment; 
    uint8_t                 transfer_status;
    uint8_t                 data_status;
    uint16_t                buffer_length;
@@ -1258,7 +1296,7 @@ typedef struct pf_ppm
    uint16_t                data_status_offset;
    uint16_t                transfer_status_offset;
 
-   uint8_t                 buffer_data[1500];   /* Max */
+   uint8_t                 buffer_data[PF_FRAME_BUFFER_SIZE];   /* Max */
 
    uint32_t                trx_cnt;
 
@@ -1412,7 +1450,7 @@ typedef struct pf_apmx
    struct pf_ar            *p_ar;
    struct pf_alpmx         *p_alpmx;
 
-   pnet_ethaddr_t          da;                           /* Destination MAC address (IO-controller) */
+   pnet_ethaddr_t          da;
 
    uint16_t                src_ref;                      /* Our ref */
    uint16_t                dst_ref;                      /* controller local_alarm_reference */
@@ -1435,7 +1473,7 @@ typedef struct pf_apmx
    /* Latest sent alarm */
    os_buf_t                *p_rta;
 
-   uint16_t                vlan_prio;                    /* 5 or 6 */
+   uint16_t                vlan_prio;
    uint16_t                block_type_alarm_notify;
    uint16_t                block_type_alarm_ack;
    uint16_t                frame_id;
@@ -1466,7 +1504,7 @@ typedef enum pf_alpmi_state_values
  */
 typedef struct pf_alpmx
 {
-   pnet_ethaddr_t          da;               /* Destination MAC address (IO-controller) */
+   pnet_ethaddr_t          da;
 
    /*
     * The sequence number is used for PULL/PLUG requests.
@@ -1508,6 +1546,7 @@ typedef struct pf_session_info
    uint16_t                ix;
    bool                    in_use;
    bool                    release_in_progress;
+   bool                    kill_session;  /* E.g. on error or when done */
    uint32_t                socket;
    os_eth_handle_t         *eth_handle;
    struct pf_ar            *p_ar;
@@ -1521,16 +1560,19 @@ typedef struct pf_session_info
     * According to the services spec the maximum supported write record data size is 4068 bytes.
     * Allow for some overhead.
     */
-   uint8_t                 buffer[4500];           /* Send/Receive buffer */
-   uint16_t                buf_len;
+   uint8_t                 in_buffer[PNET_MAX_SESSION_BUFFER_SIZE];        /* Request buffer */
+   uint16_t                in_buf_len;
+   uint16_t                in_fragment_nbr;
+
+   uint8_t                 out_buffer[PNET_MAX_SESSION_BUFFER_SIZE];       /* Response buffer */
+   uint16_t                out_buf_len;
+   uint16_t                out_buf_sent_len;
+   uint16_t                out_fragment_nbr;
 
    pf_get_info_t           get_info;
    bool                    is_big_endian;          /* From rpc_header_t in first fragment */
    pnet_result_t           rpc_result;
    pf_ndr_data_t           ndr_data;
-
-   /* These are used while collecting the fragments */
-   uint16_t                fragment_nbr;
 
    /* This item is used to handle dcontrol re-runs */
    uint32_t                dcontrol_sequence_nmb;      /* From dcontrol request */
@@ -1958,6 +2000,8 @@ struct pnet
    atomic_int                          ppm_instance_cnt;
    uint16_t                            dcp_global_block_qualifier;
    pnet_ethaddr_t                      dcp_sam;
+   pnet_ethaddr_t                      last_valid_src_eth_addr;
+   atomic_int                          dcp_sam_counter;
    bool                                dcp_delayed_response_waiting;
    uint32_t                            dcp_timeout;
    uint32_t                            dcp_sam_timeout;
@@ -1983,15 +2027,27 @@ struct pnet
    pf_ar_t                             cmrpc_ar[PNET_MAX_AR];
    pf_session_info_t                   cmrpc_session_info[PF_MAX_SESSION];
    int                                 cmrpc_rpcreq_socket;
-   uint8_t                             cmrpc_dcerpc_req_frame[1500];
-   uint8_t                             cmrpc_dcerpc_rsp_frame[1500];
+   uint8_t                             cmrpc_dcerpc_req_frame[PF_FRAME_BUFFER_SIZE];
+   uint8_t                             cmrpc_dcerpc_rsp_frame[PF_FRAME_BUFFER_SIZE];
    pf_cmsu_state_values_t              cmsu_state;
    pf_cmwrr_state_values_t             cmwrr_state;
    const pnet_cfg_t                    *p_fspm_default_cfg;
    pnet_cfg_t                          fspm_cfg;
    pf_log_book_t                       fspm_log_book;
    os_mutex_t                          *fspm_log_book_mutex;
+   uint32_t                            rpc_alarm_timeout;
+   uint32_t                            ar_stopped_alarm_timeout;
+   uint16_t                            alarm_src_reference;
+   uint16_t                            alarm_dst_reference;
+   int                                 pnet_socket; // 0xC000
+   uint8_t                             pnet_req_frame[PF_FRAME_BUFFER_SIZE];
+   uint8_t                             pnet_rsp_frame[PF_FRAME_BUFFER_SIZE];
+   pf_check_peers_t                    check_peers_data;
 };
+
+// useful null UUID for memcmp()
+// declared in pnet_api.c
+extern const pf_uuid_t null_uuid;
 
 
 #ifdef __cplusplus

@@ -30,7 +30,7 @@
  * @param dest_size        In:   Number of bytes to copy.
  * @param p_dest           Out:  Destination buffer.
  */
-static void pf_get_mem(
+void pf_get_mem(
    pf_get_info_t           *p_info,
    uint16_t                *p_pos,
    uint16_t                dest_size,     /* bytes to copy */
@@ -74,7 +74,7 @@ uint8_t pf_get_byte(
    else if (*p_pos >= p_info->len)
    {
       /* Reached end of buffer */
-      LOG_DEBUG(PNET_LOG, "BR(%d): End of buffer reached\n", __LINE__);
+      LOG_DEBUG(PNET_LOG, "BR(%d): End of buffer reached when looking for a byte\n", __LINE__);
       p_info->result = PF_PARSE_END_OF_INPUT;
    }
    else if (p_info->p_buf == NULL)
@@ -114,13 +114,7 @@ uint16_t pf_get_uint16(
    return res;
 }
 
-/**
- * @internal
- * Return a uint16_t from a buffer.
- * @param p_info           In:   The parser state.
- * @param p_pos            InOut:Position in the buffer.
- */
-static uint32_t pf_get_uint32(
+uint32_t pf_get_uint32(
    pf_get_info_t           *p_info,
    uint16_t                *p_pos)
 {
@@ -171,7 +165,7 @@ static void pf_get_uuid(
  * @param len              In:   Number of bits to extract.
  * @return
  */
-static uint32_t pf_get_bits(
+uint32_t pf_get_bits(
    uint32_t                bits,
    uint8_t                 pos,
    uint8_t                 len)
@@ -183,7 +177,7 @@ static uint32_t pf_get_bits(
    }
    else if ((pos + len) > 32)
    {
-      LOG_DEBUG(PNET_LOG, "BR(%d): pos %u + len %u > 32\n", __LINE__, pos, len);
+      LOG_ERROR(PNET_LOG, "BR(%d): pos %u + len %u > 32\n", __LINE__, pos, len);
       return 0;
    }
    else if ((pos == 0) && (len == 32))
@@ -631,6 +625,7 @@ void pf_get_dce_rpc_header(
    p_info->is_big_endian = p_rpc->is_big_endian;
    /* Float repr  - Assume IEEE */
    temp_uint8 = pf_get_byte(p_info, p_pos);
+   p_rpc->float_repr = 0;
    /* Reserved */
    p_rpc->reserved = pf_get_byte(p_info, p_pos);
 
@@ -784,4 +779,24 @@ void pf_get_pnio_status(
    p_status->error_decode = pf_get_byte(p_info, p_pos);
    p_status->error_code_1 = pf_get_byte(p_info, p_pos);
    p_status->error_code_2 = pf_get_byte(p_info, p_pos);
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void pf_get_epmv4_req(
+  pf_get_info_t *p_info,
+  uint16_t *p_pos,
+  pf_epmv4_req_t *p_req)
+{
+  p_req->inquiry_type     = pf_get_uint32(p_info, p_pos);
+  p_req->object_reference = pf_get_uint32(p_info, p_pos);
+  pf_get_uuid(p_info, p_pos, &(p_req->object_uuid));
+  p_req->internal_reference = pf_get_uint32(p_info, p_pos);
+  pf_get_uuid(p_info, p_pos, &(p_req->interface_uuid));
+  p_req->interface_version_major = pf_get_uint16(p_info, p_pos);
+  p_req->interface_version_minor = pf_get_uint16(p_info, p_pos);
+  p_req->version_option          = pf_get_uint32(p_info, p_pos);
+  p_req->entry_handle_attribute  = pf_get_uint32(p_info, p_pos);
+  pf_get_uuid(p_info, p_pos, &(p_req->entry_handle_uuid));
+  p_req->max_entries = pf_get_uint32(p_info, p_pos);
 }

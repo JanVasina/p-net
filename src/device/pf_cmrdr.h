@@ -21,7 +21,6 @@ extern "C"
 {
 #endif
 
-#include "pnet_api.h"
 
 /**
  * Handle a RPC read request.
@@ -36,13 +35,15 @@ extern "C"
  *          -1 if an error occurred.
  */
 int pf_cmrdr_rm_read_ind(
-   pnet_t                  *net,
-   pf_ar_t                 *p_ar,
-   pf_iod_read_request_t   *p_read_request,
-   pnet_result_t           *p_read_result,
-   uint16_t                res_size,      /** sizeof(output buffer) */
-   uint8_t                 *p_res,        /** Output buffer */
-   uint16_t                *p_pos);       /** in/out: Current pos in output buffer */
+  pnet_t                  *net,
+  pf_ar_t                 *p_ar,
+  uint16_t                opnum,
+  pf_iod_read_request_t   *p_read_request,
+  pnet_result_t           *p_read_result,
+  uint16_t                res_size,      /** sizeof(output buffer) */
+  uint8_t                 *p_res,        /** Output buffer */
+  uint16_t                *p_pos);        /** in/out: Current pos in output buffer */
+       
 
 #ifdef __cplusplus
 }

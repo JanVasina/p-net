@@ -1,3 +1,7 @@
+/*
+* This is an independent project of an individual developer. Dear PVS-Studio, please check it.
+* PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
+*/
 /*********************************************************************
  *        _       _         _
  *  _ __ | |_  _ | |  __ _ | |__   ___
@@ -13,7 +17,7 @@
  * full license information.
  ********************************************************************/
 
-#define _GNU_SOURCE
+//#define _GNU_SOURCE
 
 #include <osal.h>
 #include <options.h>
@@ -25,614 +29,938 @@
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
-
 #include <pthread.h>
-#include <sys/syscall.h>
-#include <arpa/inet.h>
-
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
+#include "utils.h"
+#include "config.h"
+#include "i2c_led.h"
+#include "osal.h"
+#include "plc_memory.h"
 
-/* Priority of timer callback thread (if USE_SCHED_FIFO is set) */
-#define TIMER_PRIO        5
+#define USE_RPMALLOC
+
+#define MAX_STATIC_BUFS 5 // (value find experimentally: 4) + 1
+#define BUF_SIZE        (2048 - sizeof(uint32_t))
 
 #define USECS_PER_SEC     (1 * 1000 * 1000)
 #define NSECS_PER_SEC     (1 * 1000 * 1000 * 1000)
 
-void os_log (int type, const char * fmt, ...)
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+//////////////////////////////////////////////////////////////////////////
+// static functions prototypes
+// 
+static void log_sys_cmd(app_data_t *p_appdata, const char *cmd);
+static void set_ip_address_to_interface(app_data_t *p_appdata, uint32_t ipaddr);
+
+//////////////////////////////////////////////////////////////////////////
+// static variables
+// 
+static os_mutex_t *log_mutex;
+static os_mutex_t *pbuf_mutex;
+typedef struct pbuf
 {
-   va_list list;
+  uint32_t in_use;
+  uint8_t  data[BUF_SIZE];
+} pbuf_t;
 
-   switch(LOG_LEVEL_GET (type))
-   {
-   case LOG_LEVEL_DEBUG:   printf ("[DEBUG] "); break;
-   case LOG_LEVEL_INFO:    printf ("[INFO ] "); break;
-   case LOG_LEVEL_WARNING: printf ("[WARN ] "); break;
-   case LOG_LEVEL_ERROR:   printf ("[ERROR] "); break;
-   default: break;
-   }
+static pbuf_t bufs[MAX_STATIC_BUFS];
 
-   va_start (list, fmt);
-   vprintf (fmt, list);
-   va_end (list);
-   fflush (stdout);
+void os_log(int type, const char *fmt, ...)
+{
+  time_t rawtime;
+  struct tm *timeinfo;
+
+  os_mutex_lock(log_mutex);
+  time(&rawtime);
+  timeinfo = localtime(&rawtime);
+
+  va_list list;
+
+  switch (LOG_LEVEL_GET(type))
+  {
+  case LOG_LEVEL_DEBUG:
+    printf("%02d:%02d:%02d [DEBUG] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    break;
+  case LOG_LEVEL_INFO:
+    printf("%02d:%02d:%02d [" ANSI_COLOR_GREEN "INFO " ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    break;
+  case LOG_LEVEL_WARNING:
+    printf("%02d:%02d:%02d [" ANSI_COLOR_MAGENTA "WARN " ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    break;
+  case LOG_LEVEL_ERROR:
+    printf("%02d:%02d:%02d [" ANSI_COLOR_RED "ERROR" ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    break;
+  default: break;
+  }
+
+  va_start(list, fmt);
+  vprintf(fmt, list);
+  va_end(list);
+  fflush(stdout);
+  os_mutex_unlock(log_mutex);
 }
 
-void * os_malloc (size_t size)
+void os_init(void *arg)
 {
-   return malloc (size);
+  app_data_t *p_appdata = (app_data_t *)arg;
+  rpmalloc_initialize();
+  if (p_appdata->arguments.use_led != 0)
+  {
+    int i2c_file = open_led();
+    if ((i2c_file < 0) && (p_appdata->arguments.verbosity > 0))
+    {
+      printf("[ERROR] Could not open LED: %s\r\n", strerror(errno));
+    }
+    p_appdata->i2c_file = i2c_file;
+  }
+  memset(bufs, 0, sizeof(bufs));
+  log_mutex = os_mutex_create();
+  pbuf_mutex = os_mutex_create();
 }
 
-os_thread_t * os_thread_create (const char * name, int priority,
-        int stacksize, void (*entry) (void * arg), void * arg)
+void os_exit(void *arg)
 {
-   int result;
-   pthread_t * thread = malloc (sizeof(*thread));
-   pthread_attr_t attr;
+  app_data_t *p_appdata = (app_data_t *)arg;
+  if (p_appdata->arguments.use_led != 0)
+  {
+    close_led(p_appdata->i2c_file);
+  }
+  p_appdata->i2c_file = 0;
+  set_ip_address_to_interface(p_appdata, __builtin_bswap32(p_appdata->def_ip));
+  //remove_last_added_ip_address_from_interface(p_appdata);
+  os_mutex_destroy(log_mutex);
+  log_mutex = NULL;
+  os_mutex_destroy(pbuf_mutex);
+  pbuf_mutex = NULL;
+  rpmalloc_finalize();
+}
 
-   pthread_attr_init (&attr);
-   pthread_attr_setstacksize (&attr, PTHREAD_STACK_MIN + stacksize);
+void *os_malloc(size_t size)
+{
+#ifdef USE_RPMALLOC
+  void *ptr = rpmalloc(size);
+#else
+  void *ptr = malloc(size);
+#endif // USE_RPMALLOC
+  if(ptr == NULL)
+  {
+    fprintf(stderr, "[ERROR] PNET: Not enough memory (wanted size %u).\nProgram is terminated\n",
+            size);
+    exit(EXIT_CODE_ERROR);
+  }
+  return ptr;
+}
+
+void os_free(void *ptr)
+{
+#ifdef USE_RPMALLOC
+  rpfree(ptr);
+#else
+  free(ptr);
+#endif
+}
+
+os_thread_t *os_thread_create(const char *name, int priority,
+                              int stacksize, void *(*entry) (void *arg), void *arg)
+{
+  int result;
+  pthread_t *thread = os_malloc(sizeof(*thread));
+  pthread_attr_t attr;
+
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN + stacksize);
 
 #if defined (USE_SCHED_FIFO)
-   CC_STATIC_ASSERT (_POSIX_THREAD_PRIORITY_SCHEDULING > 0);
-   struct sched_param param = { .sched_priority = priority };
-   pthread_attr_setinheritsched (&attr, PTHREAD_EXPLICIT_SCHED);
-   pthread_attr_setschedpolicy (&attr, SCHED_FIFO);
-   pthread_attr_setschedparam (&attr, &param);
+  CC_STATIC_ASSERT(_POSIX_THREAD_PRIORITY_SCHEDULING > 0);
+  struct sched_param param = { .sched_priority = priority };
+  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+  pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+  pthread_attr_setschedparam(&attr, &param);
 #endif
 
-   result = pthread_create (thread, &attr, (void *)entry, arg);
-   if (result != 0)
-      return NULL;
+  result = pthread_create(thread, &attr, entry, arg);
+  if (result != 0)
+    return NULL;
 
-   pthread_setname_np (*thread, name);
-   return thread;
+  pthread_setname_np(*thread, name);
+  pthread_attr_destroy(&attr);
+  return thread;
 }
 
-os_mutex_t * os_mutex_create (void)
+os_mutex_t *os_mutex_create(void)
 {
-   int result;
-   pthread_mutex_t * mutex = malloc (sizeof(*mutex));
-   pthread_mutexattr_t attr;
+  int result;
+  pthread_mutex_t *mutex = os_malloc(sizeof(*mutex));
 
-   CC_STATIC_ASSERT (_POSIX_THREAD_PRIO_INHERIT > 0);
-   pthread_mutexattr_init (&attr);
-   pthread_mutexattr_setprotocol (&attr, PTHREAD_PRIO_INHERIT);
+  pthread_mutexattr_t attr;
+  CC_STATIC_ASSERT(_POSIX_THREAD_PRIO_INHERIT > 0);
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
+  result = pthread_mutex_init(mutex, &attr);
 
-   result = pthread_mutex_init (mutex, &attr);
-   if (result != 0)
-      return NULL;
+  result = pthread_mutex_init(mutex, NULL);
+  if (result != 0)
+  {
+    return NULL;
+  }
 
-   return mutex;
+  return mutex;
 }
 
-void os_mutex_lock (os_mutex_t * _mutex)
+void os_mutex_lock(os_mutex_t *_mutex)
 {
-   pthread_mutex_t * mutex = _mutex;
-   pthread_mutex_lock (mutex);
+  if(_mutex != NULL)
+  {
+    pthread_mutex_t *mutex = _mutex;
+    pthread_mutex_lock(mutex);
+  }
 }
 
-void os_mutex_unlock (os_mutex_t * _mutex)
+void os_mutex_unlock(os_mutex_t *_mutex)
 {
-   pthread_mutex_t * mutex = _mutex;
-   pthread_mutex_unlock (mutex);
+  if (_mutex != NULL)
+  {
+    pthread_mutex_t *mutex = _mutex;
+    pthread_mutex_unlock(mutex);
+  }
 }
 
-void os_mutex_destroy (os_mutex_t * _mutex)
+void os_mutex_destroy(os_mutex_t *_mutex)
 {
-   pthread_mutex_t * mutex = _mutex;
-   pthread_mutex_destroy (mutex);
-   free (mutex);
+  if (_mutex != NULL)
+  {
+    pthread_mutex_t *mutex = _mutex;
+    pthread_mutex_destroy(mutex);
+    os_free(mutex);
+  }
 }
 
-os_sem_t * os_sem_create (size_t count)
+os_sem_t *os_sem_create(size_t count)
 {
-   os_sem_t * sem;
-   pthread_mutexattr_t attr;
+  os_sem_t *sem;
+  pthread_mutexattr_t attr;
 
-   sem = (os_sem_t *)malloc (sizeof(*sem));
+  sem = (os_sem_t *)os_malloc(sizeof(*sem));
 
-   pthread_cond_init (&sem->cond, NULL);
-   pthread_mutexattr_init (&attr);
-   pthread_mutexattr_setprotocol (&attr, PTHREAD_PRIO_INHERIT);
-   pthread_mutex_init (&sem->mutex, &attr);
-   sem->count = count;
+  pthread_cond_init(&sem->cond, NULL);
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
+  pthread_mutex_init(&sem->mutex, &attr);
+  sem->count = count;
 
-   return sem;
+  return sem;
 }
 
-int os_sem_wait (os_sem_t * sem, uint32_t time)
+int os_sem_wait(os_sem_t *sem, uint32_t time)
 {
-   struct timespec ts;
-   int error = 0;
-   uint64_t nsec = (uint64_t)time * 1000 * 1000;
+  struct timespec ts;
+  int error = 0;
+  uint64_t nsec = (uint64_t)time * 1000 * 1000;
 
-   clock_gettime (CLOCK_MONOTONIC, &ts);
-   nsec += ts.tv_nsec;
-   if (nsec > NSECS_PER_SEC)
-   {
-      ts.tv_sec += nsec / NSECS_PER_SEC;
-      nsec %= NSECS_PER_SEC;
-   }
-   ts.tv_nsec = nsec;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  nsec += ts.tv_nsec;
+  if (nsec > NSECS_PER_SEC)
+  {
+    ts.tv_sec += nsec / NSECS_PER_SEC;
+    nsec %= NSECS_PER_SEC;
+  }
+  ts.tv_nsec = nsec;
 
-   pthread_mutex_lock (&sem->mutex);
-   while (sem->count == 0)
-   {
-      if (time != OS_WAIT_FOREVER)
+  pthread_mutex_lock(&sem->mutex);
+  while (sem->count == 0)
+  {
+    if (time != OS_WAIT_FOREVER)
+    {
+      error = pthread_cond_timedwait(&sem->cond, &sem->mutex, &ts);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+      if (error)
       {
-         error = pthread_cond_timedwait (&sem->cond, &sem->mutex, &ts);
-         assert (error != EINVAL);
-         if (error)
-         {
-            goto timeout;
-         }
+        goto timeout;
       }
-      else
+    }
+    else
+    {
+      error = pthread_cond_wait(&sem->cond, &sem->mutex);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+    }
+  }
+
+  sem->count--;
+
+timeout:
+  pthread_mutex_unlock(&sem->mutex);
+  return (error) ? 1 : 0;
+}
+
+void os_sem_signal(os_sem_t *sem)
+{
+  pthread_mutex_lock(&sem->mutex);
+  sem->count++;
+  pthread_mutex_unlock(&sem->mutex);
+  pthread_cond_signal(&sem->cond);
+}
+
+void os_sem_destroy(os_sem_t *sem)
+{
+  pthread_cond_destroy(&sem->cond);
+  pthread_mutex_destroy(&sem->mutex);
+  os_free(sem);
+}
+
+void os_usleep(uint32_t usec)
+{
+  struct timespec ts;
+  struct timespec remain;
+
+  ts.tv_sec = usec / USECS_PER_SEC;
+  ts.tv_nsec = (usec % USECS_PER_SEC) * 1000;
+  while (clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, &remain) == -1)
+  {
+    ts = remain;
+  }
+}
+
+uint64_t os_get_current_time_us(void)
+{
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)(ts.tv_sec) * 1000ll * 1000ll + (uint64_t)(ts.tv_nsec / 1000);
+}
+
+void os_get_current_timestamp(pf_log_book_ts_t *p_ts)
+{
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  p_ts->status = PF_TS_STATUS_GLOBAL;
+  p_ts->sec_hi = (uint16_t)((uint64_t)(ts.tv_sec) >> 32U);
+  p_ts->sec_lo = ts.tv_sec & 0xFFFFFFFF;
+  p_ts->nano_sec = ts.tv_nsec;
+}
+
+
+os_event_t *os_event_create(void)
+{
+  os_event_t *event;
+  pthread_mutexattr_t attr;
+
+  event = (os_event_t *)os_malloc(sizeof(*event));
+
+  pthread_cond_init(&event->cond, NULL);
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
+  pthread_mutex_init(&event->mutex, &attr);
+  event->flags = 0;
+
+  return event;
+}
+
+int os_event_wait(os_event_t *event, uint32_t mask, uint32_t *value, uint32_t time_in_us)
+{
+  struct timespec ts;
+  int error = 0;
+  uint64_t nsec = (uint64_t)time_in_us * 1000;
+
+  if (time_in_us != OS_WAIT_FOREVER)
+  {
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    nsec += ts.tv_nsec;
+
+    ts.tv_sec += nsec / NSECS_PER_SEC;
+    ts.tv_nsec = nsec % NSECS_PER_SEC;
+  }
+
+  pthread_mutex_lock(&event->mutex);
+
+  while ((event->flags & mask) == 0)
+  {
+    if (time_in_us != OS_WAIT_FOREVER)
+    {
+      error = pthread_cond_timedwait(&event->cond, &event->mutex, &ts);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+      if (error)
       {
-         error = pthread_cond_wait (&sem->cond, &sem->mutex);
-         assert (error != EINVAL);
+        goto timeout;
       }
-   }
+    }
+    else
+    {
+      error = pthread_cond_wait(&event->cond, &event->mutex);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+    }
+  }
 
-   sem->count--;
-
- timeout:
-   pthread_mutex_unlock (&sem->mutex);
-   return (error) ? 1 : 0;
+timeout:
+  *value = event->flags & mask;
+  pthread_mutex_unlock(&event->mutex);
+  return (error) ? 1 : 0;
 }
 
-void os_sem_signal (os_sem_t * sem)
+void os_event_set(os_event_t *event, uint32_t value)
 {
-   pthread_mutex_lock (&sem->mutex);
-   sem->count++;
-   pthread_mutex_unlock (&sem->mutex);
-   pthread_cond_signal (&sem->cond);
+  pthread_mutex_lock(&event->mutex);
+  event->flags |= value;
+  pthread_mutex_unlock(&event->mutex);
+  pthread_cond_signal(&event->cond);
 }
 
-void os_sem_destroy (os_sem_t * sem)
+void os_event_clr(os_event_t *event, uint32_t value)
 {
-   pthread_cond_destroy (&sem->cond);
-   pthread_mutex_destroy (&sem->mutex);
-   free (sem);
+  pthread_mutex_lock(&event->mutex);
+  event->flags &= ~value;
+  pthread_mutex_unlock(&event->mutex);
+  pthread_cond_signal(&event->cond);
 }
 
-void os_usleep (uint32_t usec)
+void os_event_destroy(os_event_t *event)
 {
-   struct timespec ts;
-   struct timespec remain;
-
-   ts.tv_sec = usec / USECS_PER_SEC;
-   ts.tv_nsec = (usec % USECS_PER_SEC) * 1000;
-   while (clock_nanosleep (CLOCK_MONOTONIC, 0, &ts, &remain) == -1)
-   {
-      ts = remain;
-   }
+  pthread_cond_destroy(&event->cond);
+  pthread_mutex_destroy(&event->mutex);
+  os_free(event);
 }
 
-uint32_t os_get_current_time_us (void)
+os_mbox_t *os_mbox_create(size_t size)
 {
-   struct timespec ts;
+  os_mbox_t *mbox;
+  pthread_mutexattr_t attr;
 
-   clock_gettime (CLOCK_MONOTONIC, &ts);
-   return ts.tv_sec * 1000 * 1000 + ts.tv_nsec / 1000;
+  mbox = (os_mbox_t *)os_malloc(sizeof(*mbox) + size * sizeof(void *));
+
+  pthread_cond_init(&mbox->cond, NULL);
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
+  pthread_mutex_init(&mbox->mutex, &attr);
+
+  mbox->r = 0;
+  mbox->w = 0;
+  mbox->count = 0;
+  mbox->size = size;
+
+  return mbox;
 }
 
-os_event_t * os_event_create (void)
+int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time)
 {
-   os_event_t * event;
-   pthread_mutexattr_t attr;
+  struct timespec ts;
+  int error = 0;
+  uint64_t nsec = (uint64_t)time * 1000 * 1000;
 
-   event = (os_event_t *)malloc (sizeof(*event));
+  if (time != OS_WAIT_FOREVER)
+  {
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    nsec += ts.tv_nsec;
 
-   pthread_cond_init (&event->cond, NULL);
-   pthread_mutexattr_init (&attr);
-   pthread_mutexattr_setprotocol (&attr, PTHREAD_PRIO_INHERIT);
-   pthread_mutex_init (&event->mutex, &attr);
-   event->flags = 0;
+    ts.tv_sec += nsec / NSECS_PER_SEC;
+    ts.tv_nsec = nsec % NSECS_PER_SEC;
+  }
 
-   return event;
-}
+  pthread_mutex_lock(&mbox->mutex);
 
-int os_event_wait (os_event_t * event, uint32_t mask, uint32_t * value, uint32_t time)
-{
-   struct timespec ts;
-   int error = 0;
-   uint64_t nsec = (uint64_t)time * 1000 * 1000;
-
-   if (time != OS_WAIT_FOREVER)
-   {
-      clock_gettime (CLOCK_MONOTONIC, &ts);
-      nsec += ts.tv_nsec;
-
-      ts.tv_sec += nsec / NSECS_PER_SEC;
-      ts.tv_nsec = nsec % NSECS_PER_SEC;
-   }
-
-   pthread_mutex_lock (&event->mutex);
-
-   while ((event->flags & mask) == 0)
-   {
-      if (time != OS_WAIT_FOREVER)
+  while (mbox->count == 0)
+  {
+    if (time != OS_WAIT_FOREVER)
+    {
+      error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+      if (error)
       {
-         error = pthread_cond_timedwait (&event->cond, &event->mutex, &ts);
-         assert (error != EINVAL);
-         if (error)
-         {
-            goto timeout;
-         }
+        goto timeout;
       }
-      else
+    }
+    else
+    {
+      error = pthread_cond_wait(&mbox->cond, &mbox->mutex);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+    }
+  }
+
+  *msg = mbox->msg[mbox->r++];
+  if (mbox->r == mbox->size)
+    mbox->r = 0;
+
+  mbox->count--;
+
+timeout:
+  pthread_mutex_unlock(&mbox->mutex);
+  pthread_cond_signal(&mbox->cond);
+
+  return (error) ? 1 : 0;
+}
+
+int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time)
+{
+  struct timespec ts;
+  int error = 0;
+  uint64_t nsec = (uint64_t)time * 1000 * 1000;
+
+  if (time != OS_WAIT_FOREVER)
+  {
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    nsec += ts.tv_nsec;
+
+    ts.tv_sec += nsec / NSECS_PER_SEC;
+    ts.tv_nsec = nsec % NSECS_PER_SEC;
+  }
+
+  pthread_mutex_lock(&mbox->mutex);
+
+  while (mbox->count == mbox->size)
+  {
+    if (time != OS_WAIT_FOREVER)
+    {
+      error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+      if (error)
       {
-         error = pthread_cond_wait (&event->cond, &event->mutex);
-         assert (error != EINVAL);
+        goto timeout;
       }
-   }
+    }
+    else
+    {
+      error = pthread_cond_wait(&mbox->cond, &mbox->mutex);
+#ifdef _DEBUG
+      assert(error != EINVAL);
+#endif // _DEBUG
+    }
+  }
 
- timeout:
-   *value = event->flags & mask;
-   pthread_mutex_unlock (&event->mutex);
-   return (error) ? 1 : 0;
+  mbox->msg[mbox->w++] = msg;
+  if (mbox->w == mbox->size)
+    mbox->w = 0;
+
+  mbox->count++;
+
+timeout:
+  pthread_mutex_unlock(&mbox->mutex);
+  pthread_cond_signal(&mbox->cond);
+
+  return (error) ? 1 : 0;
 }
 
-void os_event_set (os_event_t * event, uint32_t value)
+void os_mbox_destroy(os_mbox_t *mbox)
 {
-   pthread_mutex_lock (&event->mutex);
-   event->flags |= value;
-   pthread_mutex_unlock (&event->mutex);
-   pthread_cond_signal (&event->cond);
+  pthread_cond_destroy(&mbox->cond);
+  pthread_mutex_destroy(&mbox->mutex);
+  os_free(mbox);
 }
 
-void os_event_clr (os_event_t * event, uint32_t value)
+static void *os_timer_thread(void *arg)
 {
-   pthread_mutex_lock (&event->mutex);
-   event->flags &= ~value;
-   pthread_mutex_unlock (&event->mutex);
-   pthread_cond_signal (&event->cond);
-}
+  os_timer_t *timer = arg;
+  sigset_t sigset;
+  siginfo_t si;
+  struct timespec tmo;
 
-void os_event_destroy (os_event_t * event)
-{
-   pthread_cond_destroy (&event->cond);
-   pthread_mutex_destroy (&event->mutex);
-   free (event);
-}
+  rpmalloc_thread_initialize();
 
-os_mbox_t * os_mbox_create (size_t size)
-{
-   os_mbox_t * mbox;
-   pthread_mutexattr_t attr;
+  timer->thread_id = (pid_t)syscall(SYS_gettid);
 
-   mbox = (os_mbox_t *)malloc (sizeof(*mbox) + size * sizeof(void *));
+  /* Add SIGALRM */
+  sigemptyset(&sigset);
+  sigprocmask(SIG_BLOCK, &sigset, NULL);
+  sigaddset(&sigset, SIGALRM);
 
-   pthread_cond_init (&mbox->cond, NULL);
-   pthread_mutexattr_init (&attr);
-   pthread_mutexattr_setprotocol (&attr, PTHREAD_PRIO_INHERIT);
-   pthread_mutex_init (&mbox->mutex, &attr);
+  tmo.tv_sec = 0;
+  tmo.tv_nsec = 500 * 1000 * 1000;
 
-   mbox->r     = 0;
-   mbox->w     = 0;
-   mbox->count = 0;
-   mbox->size  = size;
-
-   return mbox;
-}
-
-int os_mbox_fetch (os_mbox_t * mbox, void ** msg, uint32_t time)
-{
-   struct timespec ts;
-   int error = 0;
-   uint64_t nsec = (uint64_t)time * 1000 * 1000;
-
-   if (time != OS_WAIT_FOREVER)
-   {
-      clock_gettime (CLOCK_MONOTONIC, &ts);
-      nsec += ts.tv_nsec;
-
-      ts.tv_sec += nsec / NSECS_PER_SEC;
-      ts.tv_nsec = nsec % NSECS_PER_SEC;
-   }
-
-   pthread_mutex_lock (&mbox->mutex);
-
-   while (mbox->count == 0)
-   {
-      if (time != OS_WAIT_FOREVER)
+  while (!timer->exit)
+  {
+    int sig = sigtimedwait(&sigset, &si, &tmo);
+    if (sig == SIGALRM)
+    {
+      if (timer->fn)
       {
-         error = pthread_cond_timedwait (&mbox->cond, &mbox->mutex, &ts);
-         assert (error != EINVAL);
-         if (error)
-         {
-            goto timeout;
-         }
+        timer->fn(timer, timer->arg);
       }
-      else
-      {
-         error = pthread_cond_wait (&mbox->cond, &mbox->mutex);
-         assert (error != EINVAL);
-      }
-   }
+    }
+  }
 
-   *msg = mbox->msg[mbox->r++];
-   if (mbox->r == mbox->size)
-      mbox->r = 0;
-
-   mbox->count--;
-
- timeout:
-   pthread_mutex_unlock (&mbox->mutex);
-   pthread_cond_signal (&mbox->cond);
-
-   return (error) ? 1 : 0;
+  printf("[INFO ] os_timer_thread terminated\n");
+  rpmalloc_thread_finalize();
+  return NULL;
 }
 
-int os_mbox_post (os_mbox_t * mbox, void * msg, uint32_t time)
+os_timer_t *os_timer_create(uint32_t us, void (*fn) (os_timer_t *, void *arg),
+                            void *arg, bool oneshot)
 {
-   struct timespec ts;
-   int error = 0;
-   uint64_t nsec = (uint64_t)time * 1000 * 1000;
+  os_timer_t *timer;
+  struct sigevent sev;
+  sigset_t sigset;
 
-   if (time != OS_WAIT_FOREVER)
-   {
-      clock_gettime (CLOCK_MONOTONIC, &ts);
-      nsec += ts.tv_nsec;
+  /* Block SIGALRM in calling thread */
+  sigemptyset(&sigset);
+  sigaddset(&sigset, SIGALRM);
+  sigprocmask(SIG_BLOCK, &sigset, NULL);
 
-      ts.tv_sec += nsec / NSECS_PER_SEC;
-      ts.tv_nsec = nsec % NSECS_PER_SEC;
-   }
+  timer = (os_timer_t *)os_malloc(sizeof(*timer));
 
-   pthread_mutex_lock (&mbox->mutex);
+  timer->exit = false;
+  timer->thread_id = 0;
+  timer->fn = fn;
+  timer->arg = arg;
+  timer->us = us;
+  timer->oneshot = oneshot;
 
-   while (mbox->count == mbox->size)
-   {
-      if (time != OS_WAIT_FOREVER)
-      {
-         error = pthread_cond_timedwait (&mbox->cond, &mbox->mutex, &ts);
-         assert (error != EINVAL);
-         if (error)
-         {
-            goto timeout;
-         }
-      }
-      else
-      {
-         error = pthread_cond_wait (&mbox->cond, &mbox->mutex);
-         assert (error != EINVAL);
-      }
-   }
+  /* Create timer thread */
+  timer->thread = os_thread_create("os_timer", TIMER_PRIO, 1024, os_timer_thread, timer);
+  if (timer->thread == NULL)
+  {
+    os_free(timer);
+    return NULL;
+  }
 
-   mbox->msg[mbox->w++] = msg;
-   if (mbox->w == mbox->size)
-      mbox->w = 0;
+  /* Wait until timer thread sets its (kernel) thread id */
+  do
+  {
+    sched_yield();
+  } while (timer->thread_id == 0);
 
-   mbox->count++;
+  /* Create timer */
+  sev.sigev_notify = SIGEV_THREAD_ID;
+  sev.sigev_value.sival_ptr = timer;
+  sev._sigev_un._tid = timer->thread_id;
+  sev.sigev_signo = SIGALRM;
+  sev.sigev_notify_attributes = NULL;
 
- timeout:
-   pthread_mutex_unlock (&mbox->mutex);
-   pthread_cond_signal (&mbox->cond);
+  if (timer_create(CLOCK_MONOTONIC, &sev, &timer->timerid) == -1)
+  {
+    os_free(timer);
+    return NULL;
+  }
 
-   return (error) ? 1 : 0;
+  return timer;
 }
 
-void os_mbox_destroy (os_mbox_t * mbox)
+void os_timer_set(os_timer_t *timer, uint32_t us)
 {
-   pthread_cond_destroy (&mbox->cond);
-   pthread_mutex_destroy (&mbox->mutex);
-   free (mbox);
+  timer->us = us;
 }
 
-static void os_timer_thread (void * arg)
+void os_timer_start(os_timer_t *timer)
 {
-   os_timer_t * timer = arg;
-   sigset_t sigset;
-   siginfo_t si;
-   struct timespec tmo;
+  if(timer != NULL)
+  {
+    struct itimerspec its;
 
-   timer->thread_id = (pid_t)syscall (SYS_gettid);
-
-   /* Add SIGALRM */
-   sigemptyset (&sigset);
-   sigprocmask (SIG_BLOCK, &sigset, NULL);
-   sigaddset(&sigset, SIGALRM);
-
-   tmo.tv_sec = 0;
-   tmo.tv_nsec = 500 * 1000 * 1000;
-
-   while (!timer->exit)
-   {
-      int sig = sigtimedwait (&sigset, &si, &tmo);
-      if (sig == SIGALRM)
-      {
-         if (timer->fn)
-            timer->fn (timer, timer->arg);
-      }
-   }
+    /* Start timer */
+    its.it_value.tv_sec = 0;
+    its.it_value.tv_nsec = 1000 * timer->us;
+    its.it_interval.tv_sec = (timer->oneshot) ? 0 : its.it_value.tv_sec;
+    its.it_interval.tv_nsec = (timer->oneshot) ? 0 : its.it_value.tv_nsec;
+    timer_settime(timer->timerid, 0, &its, NULL);
+  }
 }
 
-os_timer_t * os_timer_create (uint32_t us, void (*fn) (os_timer_t *, void * arg),
-                              void * arg, bool oneshot)
+void os_timer_stop(os_timer_t *timer)
 {
-   os_timer_t * timer;
-   struct sigevent sev;
-   sigset_t sigset;
+  if(timer != NULL)
+  {
+    struct itimerspec its;
 
-   /* Block SIGALRM in calling thread */
-   sigemptyset (&sigset);
-   sigaddset (&sigset, SIGALRM);
-   sigprocmask (SIG_BLOCK, &sigset, NULL);
-
-   timer = (os_timer_t *)malloc (sizeof(*timer));
-
-   timer->exit      = false;
-   timer->thread_id = 0;
-   timer->fn        = fn;
-   timer->arg       = arg;
-   timer->us        = us;
-   timer->oneshot   = oneshot;
-
-   /* Create timer thread */
-   timer->thread = os_thread_create ("os_timer", TIMER_PRIO, 1024,
-                                     os_timer_thread,timer);
-   if (timer->thread == NULL)
-      return NULL;
-
-   /* Wait until timer thread sets its (kernel) thread id */
-   do
-   {
-      sched_yield();
-   } while (timer->thread_id == 0);
-
-   /* Create timer */
-   sev.sigev_notify = SIGEV_THREAD_ID;
-   sev.sigev_value.sival_ptr = timer;
-   sev._sigev_un._tid = timer->thread_id;
-   sev.sigev_signo = SIGALRM;
-   sev.sigev_notify_attributes = NULL;
-
-   if (timer_create (CLOCK_MONOTONIC, &sev, &timer->timerid) == -1)
-      return NULL;
-
-   return timer;
+    /* Stop timer */
+    its.it_value.tv_sec = 0;
+    its.it_value.tv_nsec = 0;
+    its.it_interval.tv_sec = 0;
+    its.it_interval.tv_nsec = 0;
+    timer_settime(timer->timerid, 0, &its, NULL);
+  }
 }
 
-void os_timer_set (os_timer_t * timer, uint32_t us)
+void os_timer_destroy(os_timer_t *timer)
 {
-   timer->us = us;
+  if(timer != NULL)
+  {
+    timer->exit = true;
+    pthread_join(*timer->thread, NULL);
+    timer_delete(timer->timerid);
+    os_free(timer);
+  }
 }
 
-void os_timer_start (os_timer_t * timer)
+//////////////////////////////////////////////////////////////////////////
+
+os_buf_t *os_buf_alloc(uint32_t length)
 {
-   struct itimerspec its;
+  os_buf_t *p = NULL;
 
-   /* Start timer */
-   its.it_value.tv_sec = 0;
-   its.it_value.tv_nsec = 1000 * timer->us;
-   its.it_interval.tv_sec = (timer->oneshot) ? 0 : its.it_value.tv_sec;
-   its.it_interval.tv_nsec = (timer->oneshot) ? 0 : its.it_value.tv_nsec;
-   timer_settime (timer->timerid, 0, &its, NULL);
-}
+  // first check the static pbufs
+  os_mutex_lock(pbuf_mutex);
+  for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
+  {
+    if (bufs[i].in_use == false)
+    {
+      bufs[i].in_use = true;
+      p = (os_buf_t *)(bufs[i].data);
+      break;
+    }
+  }
+  os_mutex_unlock(pbuf_mutex);
 
-void os_timer_stop (os_timer_t * timer)
-{
-   struct itimerspec its;
+  if(p == NULL)
+  {
+    p = os_malloc(sizeof(os_buf_t) + length);
+  }
 
-   /* Stop timer */
-   its.it_value.tv_sec = 0;
-   its.it_value.tv_nsec = 0;
-   its.it_interval.tv_sec = 0;
-   its.it_interval.tv_nsec = 0;
-   timer_settime (timer->timerid, 0, &its, NULL);
-}
+  p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
+  p->len = length;
 
-void os_timer_destroy (os_timer_t * timer)
-{
-   timer->exit = true;
-   pthread_join (*timer->thread, NULL);
-   timer_delete (timer->timerid);
-   free (timer);
-}
-
-uint32_t    os_buf_alloc_cnt = 0; /* Count outstanding buffers */
-
-os_buf_t * os_buf_alloc(uint16_t length)
-{
-   os_buf_t *p = malloc(sizeof(os_buf_t) + length);
-
-   if (p != NULL)
-   {
-#if 1
-      p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
-      p->len = length;
-#endif
-      os_buf_alloc_cnt++;
-   }
-   else
-   {
-      assert("malloc() failed\n");
-   }
-
-   return p;
+  return p;
 }
 
 void os_buf_free(os_buf_t *p)
 {
-   free(p);
-   os_buf_alloc_cnt--;
-   return;
+  // free of NULL pointer is allowed, so just return here
+  if (p == NULL)
+  {
+    return;
+  }
+
+  // first check the static pbufs
+  uint8_t *ptr_to_check = (uint8_t *)p;
+  os_mutex_lock(pbuf_mutex);
+  for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
+  {
+    if ((bufs[i].in_use == true) && (ptr_to_check == bufs[i].data))
+    {
+      bufs[i].in_use = false;
+      os_mutex_unlock(pbuf_mutex);
+      return;
+    }
+  }
+  os_mutex_unlock(pbuf_mutex);
+  os_free(p);
 }
 
 uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment)
 {
-   return 255;
-}
-
-/**
- * Convert IPv4 address to string
- * @param ip               In: IP address
- * @param outputstring     Out: Outputstring. Should have length INET_ADDRSTRLEN.
- */
-static void ip_to_string(
-   uint32_t                ip,
-   char                    *outputstring)
-{
-   uint32_t                ip_network_endianness = htonl(ip);
-   inet_ntop(AF_INET, (struct in_addr*)&ip_network_endianness, outputstring, INET_ADDRSTRLEN);
+  (void)p;
+  (void)header_size_increment;
+  return 255;
 }
 
 int os_set_ip_suite(
-   const char              *interface_name,
-   os_ipaddr_t             *p_ipaddr,
-   os_ipaddr_t             *p_netmask,
-   os_ipaddr_t             *p_gw,
-   const char              *hostname,
-   bool                    permanent)
+  void *arg,
+  os_ipaddr_t ipaddr,
+  os_ipaddr_t netmask,
+  os_ipaddr_t gw,
+  bool        b_temporary)
 {
-   char                    ip_string[INET_ADDRSTRLEN];
-   char                    netmask_string[INET_ADDRSTRLEN];
-   char                    gateway_string[INET_ADDRSTRLEN];
-   char                    *permanent_string;
-   char                    *outputcommand;
-   int                     textlen = -1;
-   int                     status = -1;
+  int rv                       = -1;
+  app_data_t *p_appdata        = (app_data_t *)arg;
 
-   ip_to_string(*p_ipaddr, ip_string);
-   ip_to_string(*p_netmask, netmask_string);
-   ip_to_string(*p_gw, gateway_string);
-   permanent_string = permanent ? "1" : "0";
+   const uint32_t def_ip        = __builtin_bswap32(p_appdata->def_ip);
 
-   textlen = asprintf(&outputcommand, "./set_network_parameters %s %s %s %s %s %s",
-      interface_name,
-      ip_string,
-      netmask_string,
-      gateway_string,
-      hostname,
-      permanent_string);
-   if (textlen < 0)
-   {
-      return -1;
-   }
+  if (ipaddr == 0)
+  {
+    set_ip_address_to_interface(p_appdata, def_ip);
+  }
+  else
+  {
+    set_ip_address_to_interface(p_appdata, ipaddr);
+  }
 
-   os_log(LOG_LEVEL_DEBUG, "Command for setting network parameters: %s\n", outputcommand);
+  pf_full_ip_suite_t data;
+  memset(&data, 0, sizeof(data));
+  if(b_temporary == false)
+  {
+    data.ip_suite.ip_addr    = __builtin_bswap32(ipaddr);
+    data.ip_suite.ip_mask    = __builtin_bswap32(netmask);
+    data.ip_suite.ip_gateway = __builtin_bswap32(gw);
+  }
+  FILE *fp = fopen(IP_SETTINGS_DATA_FILE_NAME, "w");
+  if (fp != NULL)
+  {
+    fwrite(&data, sizeof(data), 1, fp);
+    fclose(fp);
+    rv = 0;
+    system("sync");
+  }
 
-   status = system(outputcommand);
-   free(outputcommand);
-   if (status != 0)
-   {
-      os_log(LOG_LEVEL_ERROR, "Failed to set network parameters\n");
-      return -1;
-   }
-   return 0;
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    os_log(LOG_LEVEL_INFO, "os_set_ip_suite: set new IP parameters %s:\n",
+           b_temporary ? "temporarily" : "PERMANENT");
+    print_ip_address("IP address: ", __builtin_bswap32(ipaddr));
+    print_ip_address("Netmask:    ", __builtin_bswap32(netmask));
+    print_ip_address("Gateway:    ", __builtin_bswap32(gw));
+    if (b_temporary)
+    {
+      printf("(note: but store factory IP defaults to disk)\n");
+    }
+    printf("\n");
+  }
+  return rv;
 }
 
-void os_get_button(uint16_t id, bool *p_pressed)
+int os_set_station_name(void *arg, const char *name, bool b_temporary)
 {
+  int rv = -1;
+  app_data_t *p_appdata = (app_data_t *)arg;
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    os_log(LOG_LEVEL_INFO, "set new station name %s:\n%s\n\n",
+           b_temporary ? "temporarily" : "PERMANENT",
+           name[0] == '\0' ? "<empty>" : name);
+  }
 
+  char name_of_station[STATTION_NAME_SIZE];
+  memset(name_of_station, 0, sizeof(name_of_station));
+  if (b_temporary == false)
+  {
+    strcpy(name_of_station, name);
+  }
+  FILE *fp = fopen(NAME_OF_STATION_DATA_FILE_NAME, "w");
+  if (fp != NULL)
+  {
+    fwrite(&name_of_station, sizeof(name_of_station), 1, fp);
+    fclose(fp);
+    rv = 0;
+    system("sync");
+  }
+  return rv;
 }
 
-void os_set_led(uint16_t id, bool on)
-{
+int os_save_im_data(pnet_t *net)
+{  
+  int rv = -1;
+  FILE *fp = fopen(IM_DATA_FILE_NAME, "w");
+  if (fp != NULL)
+  {
+    fwrite(&(net->fspm_cfg.im_1_data), sizeof(net->fspm_cfg.im_1_data), 1, fp);
+    fwrite(&(net->fspm_cfg.im_2_data), sizeof(net->fspm_cfg.im_2_data), 1, fp);
+    fwrite(&(net->fspm_cfg.im_3_data), sizeof(net->fspm_cfg.im_3_data), 1, fp);
+    fwrite(&(net->check_peers_data), sizeof(net->check_peers_data), 1, fp);
+    fclose(fp);
+    rv = 0;
+    system("sync");
+  }
+  return rv;
+}
 
+//////////////////////////////////////////////////////////////////////////
+
+int os_get_ip_suite(
+  os_ipaddr_t *p_ipaddr,
+  os_ipaddr_t *p_netmask,
+  os_ipaddr_t *p_gw,
+  char *p_device_name,
+  pnet_cfg_t *p_device_cfg)
+{
+  int rv = 0;
+  pf_full_ip_suite_t data;
+  memset(&data, 0, sizeof(data));
+
+  FILE *fp = fopen(IP_SETTINGS_DATA_FILE_NAME, "r");
+  if (fp != NULL)
+  {
+    fread(&data, sizeof(data), 1, fp);
+    fclose(fp);
+    *p_ipaddr = data.ip_suite.ip_addr;
+    *p_netmask = data.ip_suite.ip_mask;
+    *p_gw = data.ip_suite.ip_gateway;
+  }
+  else
+  {
+    *p_ipaddr  = 0;
+    *p_netmask = 0;
+    *p_gw      = 0;
+    rv         = -1;
+  }
+
+  char name_of_station[STATTION_NAME_SIZE];
+  memset(name_of_station, 0, sizeof(name_of_station));
+
+  fp = fopen(NAME_OF_STATION_DATA_FILE_NAME, "r");
+  if(fp != NULL)
+  {
+    fread(name_of_station, sizeof(name_of_station), 1, fp);
+    fclose(fp);
+    strcpy(p_device_name, name_of_station);
+  }
+  else
+  {
+    p_device_name[0] = '\0';
+    rv               = -1;
+  }
+
+  fp = fopen(IM_DATA_FILE_NAME, "r");
+  if (fp != NULL)
+  {
+    fread(&(p_device_cfg->im_1_data), sizeof(p_device_cfg->im_1_data), 1, fp);
+    fread(&(p_device_cfg->im_2_data), sizeof(p_device_cfg->im_2_data), 1, fp);
+    fread(&(p_device_cfg->im_3_data), sizeof(p_device_cfg->im_3_data), 1, fp);
+    fread(&(p_device_cfg->check_peers_data), sizeof(p_device_cfg->check_peers_data), 1, fp);
+    fclose(fp);
+  }
+
+  return rv;
+}
+
+void os_get_button(void *arg, uint16_t id, bool *p_pressed)
+{
+  (void)(id);
+  (void)(p_pressed);
+}
+
+void os_set_led(void *arg, uint16_t id, bool on)
+{
+  app_data_t *p_appdata = (app_data_t *)arg;
+  if(p_appdata->arguments.use_led != 0)
+  {
+    set_led(p_appdata->i2c_file, id, on);
+  }
+  else if (p_appdata->arguments.verbosity > 0)
+  {
+    os_log(LOG_LEVEL_INFO, "Set LED %u to %i\n", id, on);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void log_sys_cmd(app_data_t *p_appdata, const char *cmd)
+{
+  if (p_appdata->arguments.verbosity > 0)
+  {
+    os_log(LOG_LEVEL_INFO, "**** Executing command: %s ****\n", cmd);
+  }
+}
+
+void set_ip_address_to_interface(app_data_t *p_appdata, uint32_t ipaddr)
+{
+  if (ipaddr != 0)
+  {
+    char cmd[STATTION_NAME_SIZE * 2];
+    char strIpAddr[64];
+    sprint_ip_address(strIpAddr, sizeof(strIpAddr), __builtin_bswap32(ipaddr));
+    sprintf(cmd, "ifconfig %s %s", p_appdata->arguments.eth_interface, strIpAddr);
+    log_sys_cmd(p_appdata, cmd);
+    system(cmd);
+  }
 }

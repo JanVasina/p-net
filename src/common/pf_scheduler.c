@@ -226,7 +226,7 @@ int pf_scheduler_add(
    uint32_t                ix_this;
    uint32_t                ix_prev;
    uint32_t                ix_free;
-   uint32_t                now = os_get_current_time_us();
+   uint64_t                now = os_get_current_time_us();
 
    if (delay > 0x80000000)  /* Make sure it is reasonable */
    {
@@ -246,11 +246,12 @@ int pf_scheduler_add(
       return -1;
    }
 
+   const uint64_t future = now + delay;
    net->scheduler_timeouts[ix_free].in_use = true;
    net->scheduler_timeouts[ix_free].p_name = p_name;
    net->scheduler_timeouts[ix_free].cb = cb;
    net->scheduler_timeouts[ix_free].arg = arg;
-   net->scheduler_timeouts[ix_free].when = now + delay;
+   net->scheduler_timeouts[ix_free].when = future;
 
    os_mutex_lock(net->scheduler_timeout_mutex);
    if (net->scheduler_timeout_first >= PF_MAX_TIMEOUTS)
@@ -258,7 +259,7 @@ int pf_scheduler_add(
       /* Put into empty q */
       pf_scheduler_link_before(net, &net->scheduler_timeout_first, ix_free, PF_MAX_TIMEOUTS);
    }
-   else if (((int32_t)(net->scheduler_timeouts[ix_free].when - net->scheduler_timeouts[net->scheduler_timeout_first].when)) <= 0)
+   else if (((int64_t)(future - net->scheduler_timeouts[net->scheduler_timeout_first].when)) <= 0LL)
    {
       /* Put first in non-empty q */
       pf_scheduler_link_before(net, &net->scheduler_timeout_first, ix_free, net->scheduler_timeout_first);
@@ -269,7 +270,7 @@ int pf_scheduler_add(
       ix_prev = net->scheduler_timeout_first;
       ix_this = net->scheduler_timeouts[net->scheduler_timeout_first].next;
       while ((ix_this < PF_MAX_TIMEOUTS) &&
-             (((int32_t)(net->scheduler_timeouts[ix_free].when - net->scheduler_timeouts[ix_this].when)) > 0))
+             (((int64_t)(future - net->scheduler_timeouts[ix_this].when)) > 0LL))
       {
          ix_prev = ix_this;
          ix_this = net->scheduler_timeouts[ix_this].next;
@@ -324,14 +325,13 @@ void pf_scheduler_tick(
    uint32_t                ix;
    pf_scheduler_timeout_ftn_t ftn;
    void                    *arg;
-   uint32_t                pf_current_time = os_get_current_time_us();
-   uint32_t                cnt = 0x10000000;
+   uint64_t                pf_current_time = os_get_current_time_us();
 
    os_mutex_lock(net->scheduler_timeout_mutex);
 
    /* Send event to all expired delay entries. */
    while ((net->scheduler_timeout_first < PF_MAX_TIMEOUTS) &&
-          ((int32_t)(pf_current_time - net->scheduler_timeouts[net->scheduler_timeout_first].when) >= 0))
+          ((int64_t)(pf_current_time - net->scheduler_timeouts[net->scheduler_timeout_first].when) >= 0LL))
    {
       /* Unlink from busy list */
       ix = net->scheduler_timeout_first;
@@ -348,8 +348,6 @@ void pf_scheduler_tick(
       os_mutex_unlock(net->scheduler_timeout_mutex);
       ftn(net, arg, pf_current_time);
       os_mutex_lock(net->scheduler_timeout_mutex);
-
-      cnt++;
    }
 
    os_mutex_unlock(net->scheduler_timeout_mutex);
@@ -371,10 +369,10 @@ void pf_scheduler_show(
    printf("%-4s  %-8s  %-6s  %-6s  %-6s  %s\n", "idx", "owner", "in_use", "next", "prev", "when");
    for (ix = 0; ix < PF_MAX_TIMEOUTS; ix++)
    {
-      printf("[%02u]  %-8s  %-6s  %-6u  %-6u  %u\n", (unsigned)ix,
+      printf("[%02u]  %-8s  %-6s  %-6u  %-6u  %llu\n", (unsigned)ix,
          net->scheduler_timeouts[ix].p_name, net->scheduler_timeouts[ix].in_use?"true":"false",
          (unsigned)net->scheduler_timeouts[ix].next, (unsigned)net->scheduler_timeouts[ix].prev,
-         (unsigned)net->scheduler_timeouts[ix].when);
+         net->scheduler_timeouts[ix].when);
    }
 
    if (net->scheduler_timeout_mutex != NULL)
@@ -393,7 +391,7 @@ void pf_scheduler_show(
       cnt = 0;
       while ((ix < PF_MAX_TIMEOUTS) && (cnt++ < 20))
       {
-         printf("%u  (%u)  ", (unsigned)ix, (unsigned)net->scheduler_timeouts[ix].when);
+         printf("%u  (%llu)  ", (unsigned)ix, net->scheduler_timeouts[ix].when);
          ix = net->scheduler_timeouts[ix].next;
       }
 

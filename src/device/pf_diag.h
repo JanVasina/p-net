@@ -166,6 +166,9 @@ int pf_diag_get_maintenance_status(
    uint16_t                subslot_nbr,
    uint32_t                *p_maint_status);
 
+void pf_diag_uuid_to_string(char *buffer, size_t buffer_length, pf_uuid_t *uuid);
+const char *pf_diag_get_uuid_as_string(pf_uuid_t *uuid);
+
 #ifdef __cplusplus
 }
 #endif
