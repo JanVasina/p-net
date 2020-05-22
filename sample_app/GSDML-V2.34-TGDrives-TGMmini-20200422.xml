@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<ISO15745Profile xmlns="http://www.profibus.com/GSDML/2003/11/DeviceProfile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.profibus.com/GSDML/2003/11/DeviceProfile ..\xsd\GSDML-DeviceProfile-V2.34.xsd">
+  <!-- ProfileHeader definition as defined in ISO 15745-1. Please do not change the content. -->
+  <ProfileHeader>
+    <ProfileIdentification>PROFINET Device Profile</ProfileIdentification>
+    <ProfileRevision>1.00</ProfileRevision>
+    <ProfileName>Device Profile for PROFINET Devices</ProfileName>
+    <ProfileSource>PROFIBUS Nutzerorganisation e. V. (PNO)</ProfileSource>
+    <ProfileClassID>Device</ProfileClassID>
+    <ISO15745Reference>
+      <ISO15745Part>4</ISO15745Part>
+      <ISO15745Edition>1</ISO15745Edition>
+      <ProfileTechnology>GSDML</ProfileTechnology>
+    </ISO15745Reference>
+  </ProfileHeader>
+  <ProfileBody>
+    <DeviceIdentity VendorID="0x0544" DeviceID="0x0001">
+      <InfoText TextId="IDT_INFO_Device"/>
+      <VendorName Value="TGDrives"/>
+    </DeviceIdentity>
+    <DeviceFunction>
+      <Family MainFamily="I/O" ProductFamily="tgmmini"/>
+    </DeviceFunction>
+    <ApplicationProcess>
+      <DeviceAccessPointList>
+        <DeviceAccessPointItem ID="IDD_1" PNIO_Version="V2.34" PhysicalSlots="0..8" ModuleIdentNumber="0x00000001" MinDeviceInterval="32" DNS_CompatibleName="tgmmini" FixedInSlots="0" ObjectUUID_LocalIndex="1" SharedDeviceSupported="false" DeviceAccessSupported="true" NumberOfDeviceAccessAR="1" MultipleWriteSupported="true" CheckDeviceID_Allowed="true" NameOfStationNotTransferable="false" LLDP_NoD_Supported="true" ResetToFactoryModes="2">
+          <ModuleInfo>
+            <Name TextId="IDT_MODULE_NAME_DAP1"/>
+            <InfoText TextId="IDT_INFO_DAP1"/>
+            <VendorName Value="TGDrives"/>
+            <OrderNumber Value="2707"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <CertificationInfo ConformanceClass="A" ApplicationClass="" NetloadClass="I"/>
+          <IOConfigData MaxInputLength="512" MaxOutputLength="512"/>
+          <UseableModules>
+            <ModuleItemRef ModuleItemTarget="IDM_11" FixedInSlots="1"/> <!--  32 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_12" FixedInSlots="2"/> <!--  64 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_13" FixedInSlots="3"/> <!-- 128 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_14" FixedInSlots="4"/> <!-- 256 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_15" FixedInSlots="5"/> <!--  32 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_16" FixedInSlots="6"/> <!--  64 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_17" FixedInSlots="7"/> <!-- 128 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_18" FixedInSlots="8"/> <!-- 256 bytes Out -->
+          </UseableModules>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="IDS_1" SubmoduleIdentNumber="0x00000001" Writeable_IM_Records="1 2 3" MayIssueProcessAlarm="false">
+              <IOData/>
+              <ModuleInfo>
+                <Name TextId="IDT_MODULE_NAME_DAP1"/>
+                <InfoText TextId="IDT_INFO_DAP1"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+          <SystemDefinedSubmoduleList>
+            <InterfaceSubmoduleItem ID="IDS_I" SubmoduleIdentNumber="0x00008000" SubslotNumber="32768" TextId="IDT_NAME_IS" SupportedRT_Classes="RT_CLASS_1" SupportedProtocols="LLDP" NetworkComponentDiagnosisSupported="false" PTP_BoundarySupported="true" DCP_BoundarySupported="true">
+              <ApplicationRelations StartupMode="Advanced">
+                <TimingProperties SendClock="32" ReductionRatio="1 2 4 8 16 32 64 128 256 512"/>
+              </ApplicationRelations>
+            </InterfaceSubmoduleItem>
+            <PortSubmoduleItem ID="IDS_P1" SubmoduleIdentNumber="0x00008001" SubslotNumber="32769" TextId="IDT_NAME_PS1" MaxPortRxDelay="350" MaxPortTxDelay="160" PortDeactivationSupported="false" CheckMAUTypeSupported="false">
+              <MAUTypeList>
+                <MAUTypeItem Value="16"/>
+              </MAUTypeList>
+            </PortSubmoduleItem>
+          </SystemDefinedSubmoduleList>
+        </DeviceAccessPointItem>
+      </DeviceAccessPointList>
+      <ModuleList>
+        <!-- ================================== -->
+        <!--    32 bytes input                  -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_11" ModuleIdentNumber="0x00000031">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_I32"/>
+            <InfoText TextId="TOK_InfoTextId_Module_I32"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="11" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Input Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Input_DataItem_32" Length="32" UseAsBits="false" />
+                </Input>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="101" Length="4">
+                  <Name TextId="Input32_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="1024" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET32_I"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_I32"/>
+                <InfoText TextId="TOK_InfoTextId_Module_I32"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    64 bytes input                  -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_12" ModuleIdentNumber="0x00000032">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_I64"/>
+            <InfoText TextId="TOK_InfoTextId_Module_I64"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="12" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Input Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Input_DataItem_64" Length="64" UseAsBits="false" />
+                </Input>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="102" Length="4">
+                  <Name TextId="Input64_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="2048" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET64_I"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_I64"/>
+                <InfoText TextId="TOK_InfoTextId_Module_I64"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    128 bytes input                 -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_13" ModuleIdentNumber="0x00000033">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_I128"/>
+            <InfoText TextId="TOK_InfoTextId_Module_I128"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="13" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Input Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Input_DataItem_128" Length="128" UseAsBits="false" />
+                </Input>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="103" Length="4">
+                  <Name TextId="Input128_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="3072" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET128_I"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_I128"/>
+                <InfoText TextId="TOK_InfoTextId_Module_I128"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    256 bytes input                 -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_14" ModuleIdentNumber="0x00000034">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_I256"/>
+            <InfoText TextId="TOK_InfoTextId_Module_I256"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="14" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Input Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Input_DataItem_256" Length="256" UseAsBits="false" />
+                </Input>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="104" Length="4">
+                  <Name TextId="Input256_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="4096" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET256_I"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_I256"/>
+                <InfoText TextId="TOK_InfoTextId_Module_I256"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    32 bytes output                 -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_15" ModuleIdentNumber="0x00000035">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_O32"/>
+            <InfoText TextId="TOK_InfoTextId_Module_O32"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="15" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Output Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Output_DataItem_32" Length="32" UseAsBits="false" />
+                </Output>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="105" Length="4">
+                  <Name TextId="Output32_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="5120" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET32_O"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_O32"/>
+                <InfoText TextId="TOK_InfoTextId_Module_O32"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    64 bytes output                 -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_16" ModuleIdentNumber="0x00000036">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_O64"/>
+            <InfoText TextId="TOK_InfoTextId_Module_O64"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="16" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Output Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Output_DataItem_64" Length="64" UseAsBits="false" />
+                </Output>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="106" Length="4">
+                  <Name TextId="Output64_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="6144" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET64_O"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_O64"/>
+                <InfoText TextId="TOK_InfoTextId_Module_O64"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    128 bytes output                -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_17" ModuleIdentNumber="0x00000037">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_O128"/>
+            <InfoText TextId="TOK_InfoTextId_Module_O128"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="17" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Output Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Output_DataItem_128" Length="128" UseAsBits="false" />
+                </Output>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="107" Length="4">
+                  <Name TextId="Output128_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="7168" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET128_O"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_O128"/>
+                <InfoText TextId="TOK_InfoTextId_Module_O128"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+        <!-- ================================== -->
+        <!--    256 bytes output                -->
+        <!--   (param-rec)                      -->
+        <!-- ================================== -->
+        <ModuleItem ID="IDM_18" ModuleIdentNumber="0x00000038">
+          <ModuleInfo>
+            <Name TextId="TOK_TextId_Module_O256"/>
+            <InfoText TextId="TOK_InfoTextId_Module_O256"/>
+            <HardwareRelease Value="2.0"/>
+            <SoftwareRelease Value="V2.0"/>
+          </ModuleInfo>
+          <VirtualSubmoduleList>
+            <VirtualSubmoduleItem ID="18" SubmoduleIdentNumber="0x0001" API="0" MayIssueProcessAlarm="false">
+              <IOData>
+                <Output Consistency="All items consistency">
+                  <DataItem DataType="OctetString" TextId="TOK_Output_DataItem_256" Length="256" UseAsBits="false" />
+                </Output>
+              </IOData>
+              <RecordDataList>
+                <ParameterRecordDataItem Index="108" Length="4">
+                  <Name TextId="Output256_Offset"/>
+                  <Ref DataType="Unsigned32" ByteOffset="0" DefaultValue="8192" AllowedValues="0..524284" Changeable="true" Visible="true" TextId="OFFSET256_O"/>
+                </ParameterRecordDataItem>
+              </RecordDataList>
+              <ModuleInfo>
+                <Name TextId="TOK_TextId_Module_O256"/>
+                <InfoText TextId="TOK_InfoTextId_Module_O256"/>
+              </ModuleInfo>
+            </VirtualSubmoduleItem>
+          </VirtualSubmoduleList>
+        </ModuleItem>
+      </ModuleList>
+      <ExternalTextList>
+        <PrimaryLanguage>
+          <Text TextId="IDT_INFO_Device" Value="PNO GSDML V2.34"/>
+          <Text TextId="IDT_MODULE_NAME_DAP1" Value="tgmmini"/>
+          <Text TextId="IDT_INFO_DAP1" Value="TGMmini with ProfinetIO device support"/>
+          <Text TextId="IDT_NAME_IS" Value="I"/>
+          <Text TextId="IDT_NAME_PS1" Value="P1"/>
+          <!-- module names-->
+          <Text TextId="TOK_TextId_Module_I32"  Value="32 bytes input slot 1"/>
+          <Text TextId="TOK_TextId_Module_O32"  Value="32 bytes output slot 5"/>
+          <Text TextId="TOK_TextId_Module_I64"  Value="64 bytes input slot 2"/>
+          <Text TextId="TOK_TextId_Module_O64"  Value="64 bytes output slot 6"/>
+          <Text TextId="TOK_TextId_Module_I128" Value="128 bytes input slot 3"/>
+          <Text TextId="TOK_TextId_Module_O128" Value="128 bytes output slot 7"/>
+          <Text TextId="TOK_TextId_Module_I256" Value="256 bytes input slot 4"/>
+          <Text TextId="TOK_TextId_Module_O256" Value="256 bytes output slot 8"/>
+          <!--module info names-->
+          <Text TextId="TOK_InfoTextId_Module_I32"  Value="32 bytes input slot 1"/>
+          <Text TextId="TOK_InfoTextId_Module_O32"  Value="32 bytes output slot 5"/>
+          <Text TextId="TOK_InfoTextId_Module_I64"  Value="64 bytes input slot 2"/>
+          <Text TextId="TOK_InfoTextId_Module_O64"  Value="64 bytes output slot 6"/>
+          <Text TextId="TOK_InfoTextId_Module_I128" Value="128 bytes input slot 3"/>
+          <Text TextId="TOK_InfoTextId_Module_O128" Value="128 bytes output slot 7"/>
+          <Text TextId="TOK_InfoTextId_Module_I256" Value="256 bytes input slot 4"/>
+          <Text TextId="TOK_InfoTextId_Module_O256" Value="256 bytes output slot 8"/>
+          <!--dataitem name-->
+          <Text TextId="TOK_Input_DataItem_32"   Value="Input 32 bytes"/>
+          <Text TextId="TOK_Output_DataItem_32"  Value="Output 32 bytes"/>
+          <Text TextId="TOK_Input_DataItem_64"   Value="Input 64 bytes" />
+          <Text TextId="TOK_Output_DataItem_64"  Value="Output 64 bytes" />
+          <Text TextId="TOK_Input_DataItem_128"  Value="Input 128 bytes" />
+          <Text TextId="TOK_Output_DataItem_128" Value="Output 128 bytes" />
+          <Text TextId="TOK_Input_DataItem_256"  Value="Input 256 bytes" />
+          <Text TextId="TOK_Output_DataItem_256" Value="Output 256 bytes" />
+
+          <!--ParameterRecordDataItem name-->
+          <Text TextId="Input32_Offset"  Value="Offset to PLC memory for 32 bytes inputs" />
+          <Text TextId="Output32_Offset" Value="Offset to PLC memory for 32 bytes outputs" />
+          <Text TextId="OFFSET32_I" Value="Offset to PLC memory for 32 bytes inputs" />
+          <Text TextId="OFFSET32_O" Value="Offset to PLC memory for 32 bytes outputs" />
+
+          <Text TextId="Input64_Offset"  Value="Offset to PLC memory for 64 bytes inputs" />
+          <Text TextId="Output64_Offset" Value="Offset to PLC memory for 64 bytes outputs" />
+          <Text TextId="OFFSET64_I" Value="Offset to PLC memory for 64 bytes inputs" />
+          <Text TextId="OFFSET64_O" Value="Offset to PLC memory for 64 bytes outputs" />
+
+          <Text TextId="Input128_Offset"  Value="Offset to PLC memory for 128 bytes inputs" />
+          <Text TextId="Output128_Offset" Value="Offset to PLC memory for 128 bytes outputs" />
+          <Text TextId="OFFSET128_I" Value="Offset to PLC memory for 128 bytes inputs" />
+          <Text TextId="OFFSET128_O" Value="Offset to PLC memory for 128 bytes outputs" />
+
+          <Text TextId="Input256_Offset"  Value="Offset to PLC memory for 256 bytes inputs" />
+          <Text TextId="Output256_Offset" Value="Offset to PLC memory for 256 bytes outputs" />
+          <Text TextId="OFFSET256_I" Value="Offset to PLC memory for 256 bytes inputs" />
+          <Text TextId="OFFSET256_O" Value="Offset to PLC memory for 256 bytes outputs" />
+
+        </PrimaryLanguage>
+      </ExternalTextList>
+    </ApplicationProcess>
+  </ProfileBody>
+</ISO15745Profile>

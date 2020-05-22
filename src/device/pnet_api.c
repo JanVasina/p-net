@@ -28,6 +28,8 @@
 #include "pf_includes.h"
 #include "pf_block_reader.h"
 
+const pf_uuid_t null_uuid = { 0,0,0,{0,0,0,0,0,0,0,0} };
+
 pnet_t* pnet_init(
    const char              *netif,
    uint32_t                tick_us,
@@ -47,7 +49,6 @@ pnet_t* pnet_init(
       return NULL;
    }
    strcpy(net->interface_name, netif);
-
    net->cmdev_initialized = false;  /* TODO How to handle that pf_cmdev_exit() is used before pf_cmdev_init()? */
    net->fspm_log_book_mutex = NULL;  /* TODO is this necessary? */
    net->scheduler_timeout_mutex = NULL;  /* TODO is this necessary? */
@@ -84,6 +85,8 @@ pnet_t* pnet_init(
 
    pf_cmrpc_init(net);
 
+   // copy default/stored check peers data
+   net->check_peers_data = p_cfg->check_peers_data;
    return net;
 }
 
@@ -329,6 +332,13 @@ int pnet_application_ready(
    if (pf_ar_find_by_arep(net, arep, &p_ar) == 0)
    {
       ret = pf_cmdev_cm_ccontrol_req(net, p_ar);
+   }
+   else
+   {
+     LOG_WARNING(PNET_LOG, 
+                 "API(%d): pf_ar_find_by_arep(%u) failed\n", 
+                 __LINE__, 
+                 arep);
    }
 
    return ret;

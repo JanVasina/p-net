@@ -101,7 +101,7 @@ int pf_cpm_get_iocs(
 /**
  * Retrieve the specified sub-slot data and IOPS received from the controller.
  * User must supply a buffer large enough to hold the received data.
- * Maximum buffer size is 1500 bytes.
+ * Maximum buffer size is PF_FRAME_BUFFER_SIZE bytes.
  * User must supply a buffer large enough to hold the received IOPS.
  * Maximum buffer size is 256 bytes.
  *
@@ -164,6 +164,9 @@ void pf_cpm_show(
    pnet_t                  *net,
    pf_cpm_t                *p_cpm);
 
+int pf_cpm_check_cycle(
+  int32_t                  prev,
+  uint16_t                 now);
 #ifdef __cplusplus
 }
 #endif

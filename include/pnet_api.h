@@ -64,7 +64,10 @@ extern "C"
  * Disable use of atomic operations (stdatomic.h).
  * If the compiler supports it then set this define to 1.
  */
-#define PNET_USE_ATOMICS                                       0
+#define PNET_USE_ATOMICS                                       1
+
+// enable profiling of the p-net stack (measuring execution time of some routines)
+#define PNET_PROFILE                                           0
 
 /**
  * # Memory Usage
@@ -78,10 +81,13 @@ extern "C"
  * Please note that some defines have minimum requirements.
  * These values are used as is by the stack. No validation is performed.
  */
-#define PNET_MAX_AR                                            1     /**< Number of connections. Must be > 0. */
+// use at least two ARs: one for IOC-AR and one for DAP-AR
+// in the GSDML file must be given NumberOfDeviceAccessAR="1" in DeviceAccessPointItem (this is DAP-AR)
+#define PNET_MAX_AR                                            (1+1) /**< Number of connections. Must be > 0. */
 #define PNET_MAX_API                                           1     /**< Number of Application Processes. Must be > 0. */
 #define PNET_MAX_CR                                            2     /**< Per AR. 1 input and 1 output. */
-#define PNET_MAX_MODULES                                       5     /**< Per API. Should be > 1 to allow at least one I/O module. */
+// number of modules is taken from GSDML file
+#define PNET_MAX_MODULES                                       9     /**< Per API. Should be > 1 to allow at least one I/O module. */
 #define PNET_MAX_SUBMODULES                                    3     /**< Per module (3 needed for DAP). */
 #define PNET_MAX_CHANNELS                                      1     /**< Per sub-slot. Used for diagnosis. */
 #define PNET_MAX_DFP_IOCR                                      2     /**< Allowed values are 0 (zero) or 2. */
@@ -101,6 +107,7 @@ extern "C"
 
 #define PNET_MAX_MAN_SPECIFIC_FAST_STARTUP_DATA_LENGTH         0     /**< or 512 (bytes) */
 
+#define PNET_MAX_SESSION_BUFFER_SIZE                           4500  /**< Max fragmented RPC request/response length */
 /**
  * # GSDML
  * The following values are application-specific and should match what
@@ -122,7 +129,6 @@ extern "C"
 
 /** Some blocks (e.g. logbook) uses the following lower version number. */
 #define PNET_BLOCK_VERSION_LOW_1                               1
-
 #define PNET_MAX_INTERFACE_NAME_LENGTH                         21       /** Including termination */
 
 /**
@@ -469,6 +475,21 @@ typedef struct pnet_result
    uint16_t                add_data_1;    /**< Application-specific error information. */
    uint16_t                add_data_2;    /**< Application-specific error information. */
 } pnet_result_t;
+
+/**
+ * Store PDPortDataCheck data, subtype CheckPeers
+ */
+
+#define MAX_PORT_NAME_LENGTH 16
+
+typedef struct pf_check_peers
+{
+  uint8_t number_of_peers;
+  uint8_t length_peer_port_id;
+  char    peer_port_id[MAX_PORT_NAME_LENGTH];
+  uint8_t length_peer_chassis_id;
+  char    peer_chassis_id[MAX_PORT_NAME_LENGTH];
+} pf_check_peers_t;
 
 /*
  * Application call-back functions
@@ -994,14 +1015,10 @@ typedef struct pnet_cfg_device_id
 } pnet_cfg_device_id_t;
 
 /**
- * Used for assigning a static IPv4 address to the device.
+ * Used for assigning a static IP address to the device.
  *
  * The Profinet stack also supports assigning an IP address, mask and gateway address
  * via DCP Set commands based on the Ethernet MAC address.
- *
- * An IP address of 1.0.0.0 has the member a=1, and the rest of the members
- * set to 0.
- *
  */
 typedef struct pnet_ip_addr_t
 {
@@ -1018,6 +1035,27 @@ typedef struct pnet_ethaddr
 {
   uint8_t addr[6];
 } pnet_ethaddr_t;
+#define PNET_LLDP_AUTONEG_SUPPORTED                            (1u << 0)
+#define PNET_LLDP_AUTONEG_ENABLED                              (1u << 1)
+#define PNET_LLDP_AUTONEG_CAP_1000BaseT_FULL_DUPLEX            (1ul << 0)
+#define PNET_LLDP_AUTONEG_CAP_1000BaseT_HALF_DUPLEX            (1ul << 1)
+#define PNET_LLDP_AUTONEG_CAP_1000BaseX_FULL_DUPLEX            (1ul << 2)
+#define PNET_LLDP_AUTONEG_CAP_1000BaseX_HALF_DUPLEX            (1ul << 3)
+#define PNET_LLDP_AUTONEG_CAP_100BaseTX_FULL_DUPLEX            (1ul << 10)
+#define PNET_LLDP_AUTONEG_CAP_100BaseTX_HALF_DUPLEX            (1ul << 11)
+#define PNET_LLDP_AUTONEG_CAP_10BaseT_FULL_DUPLEX              (1ul << 13)
+#define PNET_LLDP_AUTONEG_CAP_10BaseT_HALF_DUPLEX              (1ul << 14)
+#define PNET_LLDP_AUTONEG_CAP_UNKNOWN                          (1ul << 15)
+#define PNET_MAU_RADIO                                         0x0000
+#define PNET_MAU_COPPER_10BaseT                                0x0005
+#define PNET_MAU_COPPER_100BaseTX_HALF_DUPLEX                  0x000F
+#define PNET_MAU_COPPER_100BaseTX_FULL_DUPLEX                  0x0010
+#define PNET_MAU_COPPER_1000BaseT_HALF_DUPLEX                  0x001D
+#define PNET_MAU_COPPER_1000BaseT_FULL_DUPLEX                  0x001E
+#define PNET_MAU_FIBER_100BaseFX_HALF_DUPLEX                   0x0011
+#define PNET_MAU_FIBER_100BaseFX_FULL_DUPLEX                   0x0012
+#define PNET_MAU_FIBER_1000BaseX_HALF_DUPLEX                   0x0015
+#define PNET_MAU_FIBER_1000BaseX_FULL_DUPLEX                   0x0016
 
 /**
  * LLDP information used by the Profinet stack.
@@ -1034,6 +1072,9 @@ typedef struct pnet_lldp_cfg
    uint16_t                cap_phy;
    uint16_t                mau_type;
 } pnet_lldp_cfg_t;
+
+
+struct pf_device; // forward declaration
 
 /**
  * This is all the configuration needed to use the Profinet stack.
@@ -1081,10 +1122,14 @@ typedef struct pnet_cfg
 
    /** IP configuration */
    bool                    dhcp_enable;            /**< Not supported by stack. */
+   uint32_t                ip_sys_addr;            // OS default ip address
    pnet_cfg_ip_addr_t      ip_addr;
    pnet_cfg_ip_addr_t      ip_mask;
    pnet_cfg_ip_addr_t      ip_gateway;
    pnet_ethaddr_t          eth_addr;
+
+   struct pf_device       *p_default_device;        // default device configuration
+   pf_check_peers_t        check_peers_data;
 } pnet_cfg_t;
 
 /**

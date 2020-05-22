@@ -24,6 +24,20 @@ extern "C"
 /* ======================== Public functions */
 
 /**
+* @internal
+* Extract a sequence of bytes from a buffer.
+* @param p_info           In:   The parser state.
+* @param p_pos            InOut:Position in the buffer.
+* @param dest_size        In:   Number of bytes to copy.
+* @param p_dest           Out:  Destination buffer.
+*/
+void pf_get_mem(
+  pf_get_info_t           *p_info,
+  uint16_t                *p_pos,
+  uint16_t                dest_size,     /* bytes to copy */
+  void                    *p_dest);
+
+/**
  * @internal
  * Return a byte from a buffer.
  * @param p_info           In:   The parser state.
@@ -45,7 +59,23 @@ uint16_t pf_get_uint16(
    uint16_t                *p_pos);
 
 /**
+ * @internal
+ * Return a uint32_t from a buffer.
+ * @param p_info           In:   The parser state.
+ * @param p_pos            InOut:Position in the buffer.
+ */
+uint32_t pf_get_uint32(
+   pf_get_info_t           *p_info,
+   uint16_t                *p_pos);
+
+/**
  * Extract a NDR header from a buffer.
+ *
+ * This is the first part of the payload of the incoming DCE/RPC message
+ * (which is sent via UDP).
+ *
+ * Reads args_maximum, args_length, maximum_count, offset and actual_count.
+ *
  * @param p_info           In:   The parser state.
  * @param p_pos            InOut:Position in the buffer.
  * @param p_ndr            Out:  Destination buffer.
@@ -255,6 +285,20 @@ void pf_get_pnio_status(
    pf_get_info_t           *p_info,
    uint16_t                *p_pos,
    pnet_pnio_status_t      *p_status);
+
+// create emp v4 request
+void pf_get_epmv4_req(
+  pf_get_info_t            *p_info,
+  uint16_t                 *p_pos,
+  pf_epmv4_req_t           *p_req);
+
+
+/************ Internal functions, made available for unit testing ************/
+
+uint32_t pf_get_bits(
+   uint32_t                bits,
+   uint8_t                 pos,
+   uint8_t                 len);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,3 @@
-
 /*********************************************************************
  *        _       _         _
  *  _ __ | |_  _ | |  __ _ | |__   ___
@@ -464,4 +463,38 @@ int pf_diag_remove(
    }
 
    return ret;
+}
+
+void pf_diag_uuid_to_string(char *buffer, size_t buffer_length, pf_uuid_t *uuid)
+{
+  const uint32_t data1_u32 = uuid->data1;
+  const uint32_t data2_u16 = uuid->data2;
+  const uint32_t data3_u16 = uuid->data3;
+
+  snprintf(buffer,
+           buffer_length,
+           "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+           (data1_u32 >> 24) & 0xFF,
+           (data1_u32 >> 16) & 0xFF,
+           (data1_u32 >>  8) & 0xFF,
+           (data1_u32 >>  0) & 0xFF,
+           (data2_u16 >>  8) & 0xFF,
+           (data2_u16 >>  0) & 0xFF,
+           (data3_u16 >>  8) & 0xFF,
+           (data3_u16 >>  0) & 0xFF,
+           uuid->data4[0],
+           uuid->data4[1],
+           uuid->data4[2],
+           uuid->data4[3],
+           uuid->data4[4],
+           uuid->data4[5],
+           uuid->data4[6],
+           uuid->data4[7]);
+}
+
+const char *pf_diag_get_uuid_as_string(pf_uuid_t *uuid)
+{
+  static char str_uuid[64];
+  pf_diag_uuid_to_string(str_uuid, sizeof(str_uuid), uuid);
+  return str_uuid;
 }

@@ -72,7 +72,7 @@ static void pf_cmio_set_state(
 {
    if (state != p_ar->cmio_state)
    {
-      LOG_INFO(PNET_LOG, "CMIO(%d): New state %s\n", __LINE__, pf_cmio_state_to_string(state));
+      LOG_DEBUG(PNET_LOG, "CMIO(%d): New state %s\n", __LINE__, pf_cmio_state_to_string(state));
       p_ar->cmio_state = state;
    }
 }
