@@ -25,6 +25,7 @@ Initialization and handling
 .. doxygenfunction:: pnet_handle_periodic
 .. doxygenfunction:: pnet_get_ar_error_codes
 .. doxygenfunction:: pnet_ar_abort
+.. doxygenfunction:: pnet_factory_reset
 .. doxygenfunction:: pnet_show
 
 
@@ -76,6 +77,7 @@ to perform specific functionality.
 .. doxygentypedef:: pnet_ccontrol_cnf
 .. doxygentypedef:: pnet_state_ind
 .. doxygentypedef:: pnet_reset_ind
+.. doxygentypedef:: pnet_signal_led_ind
 .. doxygentypedef:: pnet_read_ind
 .. doxygentypedef:: pnet_write_ind
 .. doxygentypedef:: pnet_exp_module_ind
@@ -92,6 +94,7 @@ Selected enums
 .. doxygenenum:: pnet_ioxs_values_t
 .. doxygenenum:: pnet_submodule_dir_t
 .. doxygenenum:: pnet_control_command_t
+.. doxygenenum:: pnet_data_status_bits_t
 
 
 Selected typedefs
