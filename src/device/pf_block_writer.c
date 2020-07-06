@@ -440,10 +440,10 @@ static void pf_put_submodule_diff(
  */
 static void pf_put_module_diff(
   bool                    is_big_endian,
-  pf_module_diff_t *p_diff,
+  pf_module_diff_t       *p_diff,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t                ix;
 
@@ -721,7 +721,7 @@ static void pf_put_fsu_data(
 }
 #endif
 
-#if PNET_SRL_DATA
+#if PNET_OPTION_SRL
 static void pf_put_srl_data(
   bool                    is_big_endian,
   pf_ar_t *p_ar,
@@ -898,7 +898,7 @@ static void pf_put_one_ar(
     nbr_ar_data++;
   }
 #endif
-#if PNET_SRL_DATA
+#if PNET_OPTION_SRL
   if (p_ar->srl_data.valid == true)
   {
     pf_put_srl_data(is_big_endian, p_ar, res_len, p_bytes, p_pos);
@@ -1792,10 +1792,10 @@ void pf_put_record_data_write(
 
 void pf_put_write_result(
   bool                    is_big_endian,
-  pf_iod_write_result_t *p_res,
+  pf_iod_write_result_t  *p_res,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t block_pos = *p_pos;
   uint16_t block_len = 0;
@@ -1828,10 +1828,10 @@ void pf_put_write_result(
   block_len = *p_pos - (block_pos + 4);
   block_pos += offsetof(pf_block_header_t, block_length);   /* Point to correct place */
   pf_put_uint16(is_big_endian, block_len, res_len, p_bytes, &block_pos);
-   if (*p_pos >= res_len)
-   {
-      LOG_ERROR(PNET_LOG, "BW(%d): Output buffer is filled, while preparing DCP Write response.\n", __LINE__);
-   }
+  if (*p_pos >= res_len)
+  {
+    LOG_ERROR(PNET_LOG, "BW(%d): Output buffer is filled, while preparing DCP Write response.\n", __LINE__);
+  }
 }
 
 static uint64_t timestamp_to_ns(pf_log_book_ts_t *ts)
@@ -2058,17 +2058,17 @@ static void pf_put_diag_list(
  * @param p_pos            InOut:Position in destination buffer.
  */
 static void pf_put_diag_slot(
-  pnet_t *net,
+  pnet_t                 *net,
   bool                    is_big_endian,
   pf_dev_filter_level_t   filter_level,
   pf_diag_filter_level_t  diag_filter,
-  pf_ar_t *p_ar,
-  pf_slot_t *p_slot,
+  pf_ar_t                *p_ar,
+  pf_slot_t              *p_slot,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t                ix;
   pf_subslot_t *p_subslot;
@@ -2115,17 +2115,17 @@ static void pf_put_diag_slot(
  * @param p_pos            InOut:Position in destination buffer.
  */
 static void pf_put_diag_api(
-  pnet_t *net,
+  pnet_t                 *net,
   bool                    is_big_endian,
   pf_dev_filter_level_t   filter_level,
   pf_diag_filter_level_t  diag_filter,
-  pf_ar_t *p_ar,
-  pf_api_t *p_api,
+  pf_ar_t                *p_ar,
+  pf_api_t               *p_api,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t                ix;
   pf_slot_t *p_slot;
@@ -2179,14 +2179,14 @@ static void pf_put_diag_device(
   bool                    is_big_endian,
   pf_dev_filter_level_t   filter_level,
   pf_diag_filter_level_t  diag_filter,
-  pf_ar_t *p_ar,               /* If != NULL only include those belonging to p_ar */
-  pf_device_t *p_device,
+  pf_ar_t                *p_ar,               /* If != NULL only include those belonging to p_ar */
+  pf_device_t            *p_device,
   uint32_t                api_id,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t                ix;
   pf_api_t *p_api;
@@ -2235,7 +2235,7 @@ void pf_put_diag_data(
   uint16_t                block_pos = *p_pos;
   uint16_t                block_len = 0;
   uint16_t                data_pos;
-  pf_device_t *p_device = NULL;
+  pf_device_t            *p_device = NULL;
 
   /* Insert block header for the output block */
   pf_put_block_header(is_big_endian, PF_BT_DIAGNOSIS_DATA,

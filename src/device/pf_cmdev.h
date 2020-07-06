@@ -424,6 +424,12 @@ int pf_cmdev_rm_ccontrol_cnf(
    pnet_result_t           *p_ccontrol_result);
 
 
+//////////////////////////////////////////////////////////////////////////
+void pf_cmdev_prepare_submodule_diff(
+  pnet_t        *net,
+  pf_ar_t       *p_ar);
+
+
 
 /************ Internal functions, made available for unit testing ************/
 

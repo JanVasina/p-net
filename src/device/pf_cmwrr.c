@@ -17,6 +17,8 @@
 
 #endif
 
+#include <string.h>
+#include <stdlib.h>
 #include "pf_includes.h"
 #include "pf_block_reader.h"
 #include "pf_block_writer.h"
@@ -116,11 +118,41 @@ int pf_cmwrr_cmdev_state_ind(
   return -1;
 }
 
+// check the validity of check peers data
+// the checks are just guess for now
+bool pf_check_peers_is_valid(pf_check_peers_t *p_check_peers)
+{
+  // port-001, port-002, port-003 allowed
+  if (p_check_peers->length_peer_port_id != 8)
+  {
+    return false;
+  }
+  if (strncmp(p_check_peers->peer_port_id, "port-", 5) != 0)
+  {
+    return false;
+  }
+  if (strtol(&p_check_peers->peer_port_id[5], NULL, 0) > 3)
+  {
+    return false;
+  }
+  if (p_check_peers->length_peer_chassis_id != 1)
+  {
+    return false;
+  }
+  if (   (p_check_peers->peer_chassis_id[0] != 'a')
+      && (p_check_peers->peer_chassis_id[0] != 'b'))
+  {
+    return false;
+  }
+  return true;
+}
+
 // read PDPortCheckData from controller and store to net structure
 static int pf_write_pd_port_data_check(
-  pnet_t    *net, 
-  uint16_t   data_length,
-  uint8_t   *p_req_buf)
+  pnet_t                 *net, 
+  pf_ar_t                *p_ar,
+  uint16_t                data_length,
+  uint8_t                *p_req_buf)
 {
   if (data_length < sizeof(pf_block_header_t) + 6) // sizeof block_header_t + padding + slot + subslot
   {
@@ -157,15 +189,26 @@ static int pf_write_pd_port_data_check(
     pf_get_mem(&get_info, &req_pos, length_peer_chassis_id, p_dst_peers->peer_chassis_id);
     p_dst_peers->peer_chassis_id[length_peer_chassis_id] = '\0';
 
-    os_save_im_data(net);
+    // save always
 
-    LOG_DEBUG(PNET_LOG, 
-              "savePDPortDataCheck: check peers: NumberOfPeers %u LengthPeerPortID %u PeerPortID %s LengthPeerChassisID %u PeerChassisID %s\n",
-              p_dst_peers->number_of_peers,
-              p_dst_peers->length_peer_port_id,
-              p_dst_peers->peer_port_id,
-              p_dst_peers->length_peer_chassis_id,
-              p_dst_peers->peer_chassis_id);
+    if(pf_check_peers_is_valid(p_dst_peers))
+    {
+      os_save_im_data(net, false);
+    }
+    else if (p_ar != NULL)
+    {
+      pf_ppm_set_problem_indicator(p_ar, true);
+
+      LOG_WARNING(PNET_LOG,
+                  "Invalid check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n",
+                  p_dst_peers->number_of_peers,
+                  p_dst_peers->length_peer_port_id,
+                  p_dst_peers->peer_port_id,
+                  p_dst_peers->length_peer_chassis_id,
+                  p_dst_peers->peer_chassis_id);
+
+      os_save_im_data(net, true);
+    }
 
     return 0;
   }
@@ -235,10 +278,17 @@ static int pf_cmwrr_write(
       //  *       peerChassisId
       //  * Response:
       //  * IODWriteResHeader    <= Handled by caller (pf_cmwrr_rm_write_ind)
-      //  */
+      //  */      
       ret = pf_write_pd_port_data_check(net,
+                                        p_ar,
                                         data_length,
                                         &p_req_buf[*p_req_pos]);
+      if (ret != 0)
+      {
+        p_result->pnio_status.error_code = PNET_ERROR_CODE_PNIO;
+        p_result->pnio_status.error_decode = PNET_ERROR_DECODE_PNIORW;
+        p_result->pnio_status.error_code_1 = PNET_ERROR_CODE_1_ACC_STATE_CONFLICT;
+      }
       break;
     case PF_IDX_SUB_PDPORT_DATA_ADJ:
       /* ToDo: Handle the request. */
@@ -291,7 +341,13 @@ int pf_cmwrr_rm_write_ind(
     {
       ret = pf_cmwrr_write(net, p_ar, p_write_request, p_req_buf,
                            data_length, p_req_pos, p_result);
+
+      if (ret != 0)
+      {
+        memcpy(&p_write_result->pnio_status, &p_result->pnio_status, sizeof(pnet_pnio_status_t));
+      }
     }
+  
     break;
   case PF_CMWRR_STATE_PRMEND:
     p_result->pnio_status.error_code = PNET_ERROR_CODE_PNIO;
@@ -309,6 +365,10 @@ int pf_cmwrr_rm_write_ind(
     {
       ret = pf_cmwrr_write(net, p_ar, p_write_request, p_req_buf,
                            data_length, p_req_pos, p_result);
+      if (ret != 0)
+      {
+        memcpy(&p_write_result->pnio_status, &p_result->pnio_status, sizeof(pnet_pnio_status_t));
+      }
     }
     break;
   }

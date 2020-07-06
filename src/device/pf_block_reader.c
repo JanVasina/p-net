@@ -326,7 +326,7 @@ void pf_get_ar_param(
    {
       str_len = sizeof(p_ar->ar_param.cm_initiator_station_name) - 1;
    }
-   pf_get_mem(p_info, p_pos, str_len, &p_ar->ar_param.cm_initiator_station_name);
+   pf_get_mem(p_info, p_pos, str_len, p_ar->ar_param.cm_initiator_station_name);
    p_ar->ar_param.cm_initiator_station_name[str_len] = '\0';
 }
 
@@ -445,7 +445,7 @@ void pf_get_exp_api_module(
          {
             /* This error condition is reported by caller. */
             p_info->result = PF_PARSE_OUT_OF_EXP_SUBMODULE_RESOURCES;
-            LOG_DEBUG(PNET_LOG, "BR(%d): Out of expected module resources\n", __LINE__);
+            LOG_ERROR(PNET_LOG, "BR(%d): Too many modules used (not enough slots). Out of expected module resources.\n", __LINE__);
          }
       }
    }
@@ -584,7 +584,7 @@ void pf_get_control(
 
    /* Command and properties are always Big-Endian on the wire!! */
    p_req->control_command = pf_get_uint16(p_info, p_pos);
-   p_req->control_block_properties = pf_get_uint16(p_info, p_pos);;
+   p_req->control_block_properties = pf_get_uint16(p_info, p_pos);
 }
 
 void pf_get_ndr_data(
@@ -624,7 +624,7 @@ void pf_get_dce_rpc_header(
    p_rpc->is_big_endian = (pf_get_bits(temp_uint8, 4, 4) == 0);
    p_info->is_big_endian = p_rpc->is_big_endian;
    /* Float repr  - Assume IEEE */
-   temp_uint8 = pf_get_byte(p_info, p_pos);
+   (void)pf_get_byte(p_info, p_pos);
    p_rpc->float_repr = 0;
    /* Reserved */
    p_rpc->reserved = pf_get_byte(p_info, p_pos);

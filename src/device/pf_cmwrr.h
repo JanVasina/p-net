@@ -75,6 +75,9 @@ int pf_cmwrr_rm_write_ind(
    uint16_t                data_length,
    uint16_t                *p_req_pos);
 
+// check the validity of the check peers data
+bool pf_check_peers_is_valid(pf_check_peers_t *p_check_peers);
+
 #ifdef __cplusplus
 }
 #endif
