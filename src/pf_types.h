@@ -54,6 +54,10 @@ static inline uint32_t atomic_fetch_sub(atomic_int *p, uint32_t v)
 }
 #endif
 
+#define PF_RPC_SERVER_PORT                0x8894   /* PROFInet Context Manager */
+#define PF_PNET_SERVER_PORT               0xC000   
+#define PF_RPC_CCONTROL_EPHEMERAL_PORT    0xc001
+
 // moved here from osal.h
 typedef uint32_t os_ipaddr_t;
 typedef uint16_t os_ipport_t;
@@ -678,6 +682,7 @@ typedef struct pf_alarm_err
 
 #define PF_CMINA_FS_HELLO_RETRY           3
 #define PF_CMINA_FS_HELLO_INTERVAL        (3*1000)     /* ms => 3s. Default is 30ms */
+#define PF_LLDP_INTERVAL                  (5*1000)     /* milliseconds */
 
 typedef enum pf_cmina_state_values
 {
@@ -2014,8 +2019,8 @@ struct pnet
    uint32_t                            scheduler_tick_interval;
    bool                                cmdev_initialized;
    pf_device_t                         cmdev_device;
-   pf_cmina_dcp_ase_t                  cmina_perm_dcp_ase;
-   pf_cmina_dcp_ase_t                  cmina_temp_dcp_ase;
+   pf_cmina_dcp_ase_t                  cmina_nonvolatile_dcp_ase;
+   pf_cmina_dcp_ase_t                  cmina_current_dcp_ase;
    pf_cmina_state_values_t             cmina_state;
    uint8_t                             cmina_error_decode;
    uint8_t                             cmina_error_code_1;
@@ -2035,6 +2040,7 @@ struct pnet
    pnet_cfg_t                          fspm_cfg;
    pf_log_book_t                       fspm_log_book;
    os_mutex_t                          *fspm_log_book_mutex;
+   uint32_t                            lldp_timeout;  /* Scheduler handle for periodic LLDP sending */
    uint32_t                            rpc_alarm_timeout;
    uint32_t                            ar_stopped_alarm_timeout;
    uint16_t                            alarm_src_reference;

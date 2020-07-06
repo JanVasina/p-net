@@ -33,9 +33,9 @@ extern "C"
 #include "pf_types.h"
 
 // priorities
-#define TIMER_PRIO    11
-#define ETH_PRIO       9
-#define APP_PRIO       5
+#define TIMER_PRIO     5
+#define ETH_PRIO      10
+#define APP_PRIO      15
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b)) ? (a) : (b)
@@ -93,6 +93,7 @@ typedef void os_channel_t;
 /** Set an IP address given by the four byte-parts */
 #define OS_IP4_ADDR_TO_U32(ipaddr, a,b,c,d)  ipaddr = OS_MAKEU32(a,b,c,d)
 
+#define OS_INET_ADDRSTRLEN       16
 enum os_eth_type {
   OS_ETHTYPE_IP        = 0x0800U,
   OS_ETHTYPE_ARP       = 0x0806U,
@@ -102,9 +103,6 @@ enum os_eth_type {
   OS_ETHTYPE_LLDP      = 0x88CCU,
 };
 
-#define OS_PF_PNET_SERVER_PORT   0xC000 /*  */
-#define OS_PF_RPC_SERVER_PORT    0x8894 /* PROFInet Context Manager */
-#define OS_PF_SNMP_SERVER_PORT   161 /* snmp */
 
 /* 255.255.255.255 */
 #ifndef OS_IPADDR_NONE
@@ -195,7 +193,6 @@ os_eth_handle_t* os_eth_init(
    os_eth_callback_t       *callback,
    void                    *arg);
 
-int os_udp_socket(void);
 int os_udp_open(os_ipaddr_t addr, os_ipport_t port);
 int os_udp_sendto(uint32_t id,
       os_ipaddr_t dst_addr,
@@ -203,19 +200,12 @@ int os_udp_sendto(uint32_t id,
       const uint8_t * data,
       int size);
 int os_udp_recvfrom(uint32_t id,
-      os_ipaddr_t *dst_addr,
-      os_ipport_t *dst_port,
+      os_ipaddr_t *src_addr,
+      os_ipport_t *src_port,
       uint8_t * data,
       int size);
 void os_udp_close(uint32_t id);
 
-int os_udp_sendto_raw(pnet_t *net,
-                      os_ipaddr_t src_addr,
-                      os_ipport_t src_port,
-                      os_ipaddr_t dst_addr,
-                      os_ipport_t dst_port,
-                      const uint8_t *data,
-                      int size);
 
 int os_get_ip_suite(
   os_ipaddr_t *p_ipaddr,
@@ -237,7 +227,7 @@ int os_set_station_name(
   bool        b_temporary);
 
 // save the im1 - im3 data
-int os_save_im_data(pnet_t *net);
+int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data);
 
 void os_set_led(
   void *arg,
