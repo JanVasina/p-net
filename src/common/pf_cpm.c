@@ -110,8 +110,8 @@ static void pf_cpm_state_ind(
  * @param current_time     In:   The current device time.
  */
 static void pf_cpm_control_interval_expired(
-  pnet_t *net,
-  void *arg,
+  pnet_t                 *net,
+  void                   *arg,
   uint32_t                current_time)
 {
   pf_iocr_t *p_iocr = (pf_iocr_t *)arg;
@@ -131,7 +131,7 @@ static void pf_cpm_control_interval_expired(
       if (p_iocr->cpm.dht >= p_iocr->cpm.data_hold_factor)
       {
         /* dht expired */
-        LOG_INFO(PF_CPM_LOG, "CPM(%i): dht expired\n", __LINE__);
+        LOG_DEBUG(PF_CPM_LOG, "CPM(%i): dht expired\n", __LINE__);
         p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT;
 
         p_iocr->cpm.dht = 0;
@@ -259,6 +259,15 @@ int pf_cpm_close_req(
 /**
  * @internal
  * Perform the cycle counter check of the received frame.
+ *
+ * Profinet 2.4, section 4.7.2.1.2
+ *
+ * In general, the current counter value should be larger than the
+ * previous counter value.
+ *
+ * However as we use cyclic counters, also allow it to be a lot less (not the
+ * same or slightly less).
+ *
  * @param prev             In:   The previous cycle counter.
  * @param now              In:   The current cycle counter.
  * @return  0  If the cycle check is OK.
@@ -383,11 +392,11 @@ static void pf_cpm_get_buf(
  *          1     If the frame was handled and the buffer freed.
  */
 static int pf_cpm_c_data_ind(
-  pnet_t *net,
+  pnet_t                 *net,
   uint16_t                frame_id,
-  os_buf_t *p_buf,
+  os_buf_t               *p_buf,
   uint16_t                frame_id_pos,
-  void *p_arg)
+  void                   *p_arg)
 {
   int                     ret = 0;    /* Means "Not handled" */
   pf_iocr_t              *p_iocr = p_arg;
@@ -416,7 +425,10 @@ static int pf_cpm_c_data_ind(
     {
       p_iocr->p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
       p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
+
+      LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_iocr->p_ar->err_code);
     }
+
     p_cpm->errline = __LINE__;
     p_cpm->errcnt++;
     ret = 1;    /* Means "handled" */
@@ -523,8 +535,8 @@ int pf_cpm_udp_c_data_ind(
 }
 
 int pf_cpm_activate_req(
-  pnet_t *net,
-  pf_ar_t *p_ar,
+  pnet_t                 *net,
+  pf_ar_t                *p_ar,
   uint32_t                crep)
 {
   int                     ret = -1;
@@ -573,7 +585,6 @@ int pf_cpm_activate_req(
     if (p_cpm->nbr_frame_id == 2)
     {
       p_cpm->frame_id[1] = p_cpm->frame_id[0] + 1;
-      // pf_eth_frame_id_map_add(net, p_cpm->frame_id[1], pf_cpm_c_data_ind, &p_iocr); // ???
       pf_eth_frame_id_map_add(net, p_cpm->frame_id[1], pf_cpm_c_data_ind, p_iocr);
     }
 
@@ -597,6 +608,8 @@ int pf_cpm_activate_req(
   case PF_CPM_STATE_RUN:
     p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
     p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
+    LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
+
     break;
   default:
     LOG_ERROR(PF_CPM_LOG, "CPM(%d): Illegal state in cpm[%d] %d\n", __LINE__, (int)crep, p_cpm->state);
@@ -706,8 +719,13 @@ int pf_cpm_get_data_and_iops(
     switch (p_iocr->cpm.state)
     {
     case PF_CPM_STATE_W_START:
-      p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
-      p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
+      if (p_ar->err_cls == 0) // no error set yet?
+      {
+        p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
+        LOG_ERROR(PNET_LOG, "%s(%i) err_code %d -> %d\n", __FILE__, __LINE__, p_ar->err_code, PNET_ERROR_CODE_2_CPM_INVALID_STATE);
+        p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
+      }
+
       LOG_DEBUG(PF_CPM_LOG, "CPM(%d): Get data in wrong state: %u\n", __LINE__, p_iocr->cpm.state);
       break;
     case PF_CPM_STATE_FRUN:
@@ -730,13 +748,13 @@ int pf_cpm_get_data_and_iops(
             memcpy(p_data, &p_buffer[p_iodata->data_offset], p_iodata->data_length);
           }
           if (p_iodata->iops_length > 0)
-          {
-            memcpy(p_iops, &p_buffer[p_iodata->data_offset + p_iodata->data_length], p_iodata->iops_length);
+          {            
+            memcpy(p_iops, &p_buffer[p_iodata->iops_offset], p_iodata->iops_length);
           }
           os_mutex_unlock(net->cpm_buf_lock);
 
           *p_data_len = p_iodata->data_length;
-          *p_iops_len = (uint8_t)p_iodata->iops_length,
+          *p_iops_len = (uint8_t)p_iodata->iops_length;
            ret = 0;
         }
         else
@@ -783,6 +801,8 @@ int pf_cpm_get_iocs(
     case PF_CPM_STATE_W_START:
       p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
       p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
+      LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
+
       LOG_DEBUG(PF_CPM_LOG, "CPM(%d): Get iocs in wrong state: %u\n", __LINE__, p_iocr->cpm.state);
       break;
     case PF_CPM_STATE_FRUN:
@@ -801,8 +821,8 @@ int pf_cpm_get_iocs(
           memcpy(p_iocs, &p_buffer[p_iodata->iocs_offset], p_iodata->iocs_length);
           os_mutex_unlock(net->cpm_buf_lock);
 
-          *p_iocs_len = (uint8_t)p_iodata->iocs_length,
-            ret = 0;
+          *p_iocs_len = (uint8_t)p_iodata->iocs_length;
+           ret = 0;
         }
         else
         {

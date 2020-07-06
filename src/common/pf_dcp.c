@@ -102,32 +102,32 @@ typedef struct pf_dcp_opt_sub
 static const pf_dcp_opt_sub_t device_options[] =
 {
    {PF_DCP_OPT_IP, PF_DCP_SUB_IP_PAR},
-   //   {PF_DCP_OPT_IP, PF_DCP_SUB_IP_MAC},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_VENDOR},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_NAME},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ID},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ROLE},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_OPTIONS},
-      {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ALIAS},
-      {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_START},
-      {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_STOP},
-      {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_SIGNAL},
-      {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_FACTORY_RESET},
-      {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_RESET_TO_FACTORY},
-   #if 1
-   #endif
-   #if 0
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_HOSTNAME},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_VENDOR_SPEC},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_SERVER_ID},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_PAR_REQ_LIST},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_CLASS_ID},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_CLIENT_ID},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_FQDN},
-      {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_UUID_CLIENT_ID},
-   #endif
-      //   {PF_DCP_OPT_DEVICE_INITIATIVE, PF_DCP_SUB_DEV_INITIATIVE_SUPPORT},
-         {PF_DCP_OPT_ALL, PF_DCP_SUB_ALL},
+   {PF_DCP_OPT_IP, PF_DCP_SUB_IP_MAC},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_VENDOR},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_NAME},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ID},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ROLE},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_OPTIONS},
+   {PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_ALIAS},
+   {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_START},
+   {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_STOP},
+   {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_SIGNAL},
+   {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_FACTORY_RESET},
+   {PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_RESET_TO_FACTORY},
+#if 1
+#endif
+#if 0
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_HOSTNAME},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_VENDOR_SPEC},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_SERVER_ID},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_PAR_REQ_LIST},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_CLASS_ID},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_CLIENT_ID},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_FQDN},
+   {PF_DCP_OPT_DHCP, PF_DCP_SUB_DHCP_UUID_CLIENT_ID},
+#endif
+   //   {PF_DCP_OPT_DEVICE_INITIATIVE, PF_DCP_SUB_DEV_INITIATIVE_SUPPORT},
+   {PF_DCP_OPT_ALL, PF_DCP_SUB_ALL},
 };
 
 /**
@@ -250,26 +250,29 @@ static int pf_dcp_put_block(
 
 /**
  * @internal
- * Handle a DCP get request.
+ * * Handle one block in a DCP get request, by inserting it into the response.
  *
- * @param net              InOut: The p-net stack instance
- * @param p_dst            In:   The destination buffer.
- * @param p_dst_pos        InOut:Position in the destination buffer.
- * @param dst_max          In:   Size of destination buffer.
- * @param opt              In:   Option key.
- * @param sub              In:   Sub-option key.
+ * @param net                 InOut: The p-net stack instance
+ * @param p_dst               In:   The destination buffer.
+ * @param p_dst_pos           InOut:Position in the destination buffer.
+ * @param dst_max             In:   Size of destination buffer.
+ * @param opt                 In:   Option key.
+ * @param sub                 In:   Sub-option key.
+ * @param request_is_identify In:   Usage in Identify request (skips some blocks)
  * @return
  */
 static int pf_dcp_get_req(
-  pnet_t *net,
-  uint8_t *p_dst,
-  uint16_t *p_dst_pos,
+  pnet_t                 *net,
+  uint8_t                *p_dst,
+  uint16_t               *p_dst_pos,
   uint16_t                dst_max,
   uint8_t                 opt,
-  uint8_t                 sub)
+  uint8_t                 sub,
+  bool                    request_is_identify)
 {
   int                     ret = 0;       /* Assume all OK */
   uint8_t                 block_error = PF_DCP_BLOCK_ERROR_NO_ERROR;
+   uint8_t                 negative_response_data[3];  /* For negative get */
   uint16_t                block_info = 0;
   uint16_t                value_length = 0;
   uint8_t *p_value = NULL;
@@ -312,7 +315,7 @@ static int pf_dcp_get_req(
       /* ToDo: We do not yet report on "IP address conflict" (block_info, BIT(7)) */
       break;
     case PF_DCP_SUB_IP_MAC:
-      //skip = true;
+      skip = request_is_identify;
       break;
     default:
       break;
@@ -324,7 +327,7 @@ static int pf_dcp_get_req(
     case PF_DCP_SUB_DEV_PROP_OPTIONS:
       if (sizeof(device_options) > 0)
       {
-        p_value = (uint8_t *)&device_options;
+        p_value = (uint8_t *)device_options;
         value_length = sizeof(device_options);
         ret = 0;
       }
@@ -357,6 +360,7 @@ static int pf_dcp_get_req(
       break;
     case PF_DCP_SUB_DEV_PROP_ROLE:
       value_length += 1;
+      break;
     case PF_DCP_SUB_DEV_PROP_ID:
     case PF_DCP_SUB_DEV_PROP_INSTANCE:
     case PF_DCP_SUB_DEV_PROP_OEM_ID:
@@ -398,15 +402,26 @@ static int pf_dcp_get_req(
   {
     if (skip == false)
     {
-      ret = pf_dcp_put_block(p_dst,
-                              p_dst_pos,
-                              dst_max,
-                              PF_DCP_OPT_CONTROL,
-                              PF_DCP_SUB_CONTROL_RESPONSE,
-                              true,
-                              ((uint16_t)(opt) << 8) | ((uint16_t)(sub)),
-                              sizeof(block_error),
-                              &block_error);
+//      ret = pf_dcp_put_block(p_dst,
+//                             p_dst_pos,
+//                             dst_max,
+//                             PF_DCP_OPT_CONTROL,
+//                             PF_DCP_SUB_CONTROL_RESPONSE,
+//                             true,
+//                             ((uint16_t)(opt) << 8) | ((uint16_t)(sub)),
+//                             sizeof(block_error),
+//                             &block_error);
+         /* GetNegResBlock consists of:
+            - option = Control                              1 byte
+            - suboption = Response                          1 byte
+            - block length                                  2 bytes
+            - type of option involved (option + suboption)  2 bytes
+            - block error                                   1 byte
+         */
+         negative_response_data[0] = opt;
+         negative_response_data[1] = sub;
+         negative_response_data[2] = block_error;
+         ret = pf_dcp_put_block(p_dst, p_dst_pos, dst_max, PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_RESPONSE, false, 0, sizeof(negative_response_data), negative_response_data);
     }
   }
 
@@ -572,6 +587,7 @@ static int pf_dcp_set_req(
     {
     case PF_DCP_SUB_CONTROL_START:
       net->dcp_global_block_qualifier = block_qualifier;
+      response_data[2] = PF_DCP_BLOCK_ERROR_NO_ERROR;
       ret = 0;
       break;
     case PF_DCP_SUB_CONTROL_STOP:
@@ -599,7 +615,7 @@ static int pf_dcp_set_req(
     case PF_DCP_SUB_CONTROL_RESET_TO_FACTORY:
       if (pf_cmina_dcp_set_ind(net, opt, sub, block_qualifier, value_length, p_value, &response_data[2]) != 0)
       {
-        LOG_ERROR(PF_DCP_LOG, "DCP(%d): Could not perform Factory Reset\n", __LINE__);
+        LOG_ERROR(PF_DCP_LOG, "DCP(%d): Could not perform Factory Reset #%d\n", __LINE__, block_qualifier >> 1);
       }
       else
       {
@@ -622,6 +638,13 @@ static int pf_dcp_set_req(
     response_data[2] = PF_DCP_BLOCK_ERROR_NO_ERROR;
   }
 
+   /* SetResBlock and SetNegResBlock consists of:
+      - option = Control                              1 byte
+      - suboption = Response                          1 byte
+      - block length                                  2 bytes
+      - type of option involved (option + suboption)  2 bytes
+      - block error                                   1 byte  (=0 when no error)
+   */
   ret = pf_dcp_put_block(p_dst, p_dst_pos, dst_max,
                          PF_DCP_OPT_CONTROL, PF_DCP_SUB_CONTROL_RESPONSE,
                          false, 0, sizeof(response_data), response_data);
@@ -650,7 +673,6 @@ static int pf_dcp_get_set(
   uint16_t                frame_id_pos,
   void *p_arg)
 {
-  int                     ret = 0;       /* Means not handled */
   uint8_t *p_src;
   uint16_t                src_pos;
   uint16_t                src_dcplen;
@@ -665,9 +687,9 @@ static int pf_dcp_get_set(
   uint16_t                dst_start;
   pf_ethhdr_t *p_dst_ethhdr;
   pf_dcp_header_t *p_dst_dcphdr;
-  const pnet_cfg_t *p_cfg = NULL;
+  pnet_ethaddr_t          mac_address;
 
-  pf_fspm_get_default_cfg(net, &p_cfg);
+  pf_cmina_get_macaddr(net, &mac_address);
 
   if (p_buf != NULL)
   {
@@ -693,7 +715,7 @@ static int pf_dcp_get_set(
       p_dst_ethhdr = (pf_ethhdr_t *)&p_dst[dst_pos];
       dst_pos += sizeof(pf_ethhdr_t);
 
-      /* frame ID */
+      /* Insert frame ID into reponse */
       p_dst[dst_pos++] = ((PF_DCP_GET_SET_FRAME_ID & 0xff00) >> 8);
       p_dst[dst_pos++] = PF_DCP_GET_SET_FRAME_ID & 0xff;
 
@@ -705,10 +727,10 @@ static int pf_dcp_get_set(
 
       /* Set eth header in the response */
       memcpy(p_dst_ethhdr->dest.addr, p_src_ethhdr->src.addr, sizeof(pnet_ethaddr_t));
-      memcpy(p_dst_ethhdr->src.addr, &p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t));
+      memcpy(p_dst_ethhdr->src.addr, mac_address.addr, sizeof(pnet_ethaddr_t));
       p_dst_ethhdr->type = htons(OS_ETHTYPE_PROFINET);
 
-      /* Start with the DCP request header and modify what is needed. */
+      /* Copy DCP header from the request, and modify what is needed. */
       *p_dst_dcphdr = *p_src_dcphdr;
       p_dst_dcphdr->service_type = PF_DCP_SERVICE_TYPE_SUCCESS;
       p_dst_dcphdr->response_delay_factor = htons(0);
@@ -734,15 +756,14 @@ static int pf_dcp_get_set(
                  net->dcp_sam.addr[4],
                  net->dcp_sam.addr[5]);
 
-        while ((ret == 0) &&
-               (src_dcplen >= (src_pos + src_block_len)))
+        while (src_dcplen >= (src_pos + src_block_len))
         {
           /* Extract block qualifier */
           src_block_qualifier = ntohs(*(uint16_t *)&p_src[src_pos]);
           src_pos += sizeof(uint16_t);
           src_block_len -= sizeof(uint16_t);
 
-          ret = pf_dcp_set_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
+          (void)pf_dcp_set_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
                                p_src_block_hdr->option, p_src_block_hdr->sub_option,
                                src_block_qualifier,
                                src_block_len, &p_src[src_pos]);
@@ -759,9 +780,12 @@ static int pf_dcp_get_set(
           src_pos += sizeof(*p_src_block_hdr);    /* Point to the block value */
           src_block_len = ntohs(p_src_block_hdr->block_length);
         }
-        // store the incomming MAX address for later test
+        // store the incoming MAX address for later test
         net->dcp_sam = p_src_ethhdr->src;
+        // store the valid MAC address for direct pf_alarm_send()
         net->last_valid_src_eth_addr = p_src_ethhdr->src;
+        // clearing the dcp_sam must be counted, must be 3s after the LAST access
+        // dcp_sam_counter is decremented in pf_dcp_clear_sam()
         (void)atomic_fetch_add(&net->dcp_sam_counter, 1);
         (void)pf_scheduler_add(net, 3 * 1000 * 1000,      /* 3s */
                                dcp_sync_name, pf_dcp_clear_sam, NULL, &net->dcp_sam_timeout);
@@ -783,18 +807,20 @@ static int pf_dcp_get_set(
                  net->dcp_sam.addr[3],
                  net->dcp_sam.addr[4],
                  net->dcp_sam.addr[5]);
-        while ((ret == 0) &&
-               (src_dcplen >= (src_pos + sizeof(uint8_t) + sizeof(uint8_t))))
+        while (src_dcplen >= (src_pos + sizeof(uint8_t) + sizeof(uint8_t)))
         {
-          ret = pf_dcp_get_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
-                               p_src[src_pos], p_src[src_pos + 1]);
+          (void)pf_dcp_get_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
+                               p_src[src_pos], p_src[src_pos + 1], false);
 
           /* Point to next block */
           src_pos += sizeof(uint8_t) + sizeof(uint8_t);
         }
 
         net->dcp_sam = p_src_ethhdr->src;
+        // store the valid MAC address for direct pf_alarm_send()
         net->last_valid_src_eth_addr = p_src_ethhdr->src;
+        // clearing the dcp_sam must be counted, must be 3s after the LAST access
+        // dcp_sam_counter is decremented in pf_dcp_clear_sam()
         (void)atomic_fetch_add(&net->dcp_sam_counter, 1);
         (void)pf_scheduler_add(net, 3 * 1000 * 1000,      /* 3s */
                                dcp_sync_name, pf_dcp_clear_sam, NULL, &net->dcp_sam_timeout);
@@ -817,12 +843,13 @@ static int pf_dcp_get_set(
         LOG_DEBUG(PF_DCP_LOG, "DCP(%d): Sent DCP Get/Set response\n", __LINE__);
       }
 
-      /* Send LLDP _after_ the response in order to pass I/O-tester tests. */
       if (p_src_dcphdr->service_id == PF_DCP_SERVICE_SET)
       {
         pf_cmina_dcp_set_commit(net);
-        pf_lldp_send(net);
       }
+
+      /* Send LLDP _after_ the response in order to pass I/O-tester tests. */
+      pf_lldp_send(net);
     }
     else
     {
@@ -939,11 +966,9 @@ int pf_dcp_hello_req(
   uint8_t                 block_error;
   uint16_t                temp16;
   pf_ip_suite_t           ip_suite;
-  const pnet_cfg_t *p_cfg = NULL;
+   pnet_ethaddr_t          mac_address;
 
-  LOG_DEBUG(PF_DCP_LOG, "DCP(%d): Sending DCP Hello request\n", __LINE__);
-
-  pf_fspm_get_default_cfg(net, &p_cfg);
+   pf_cmina_get_macaddr(net, &mac_address);
 
   if (p_buf != NULL)
   {
@@ -953,7 +978,7 @@ int pf_dcp_hello_req(
       dst_pos = 0;
       p_ethhdr = (pf_ethhdr_t *)&p_dst[dst_pos];
       memcpy(p_ethhdr->dest.addr, dcp_mc_addr_hello.addr, sizeof(p_ethhdr->dest.addr));
-      memcpy(p_ethhdr->src.addr, p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t));
+      memcpy(p_ethhdr->src.addr, mac_address.addr, sizeof(pnet_ethaddr_t));
 
       p_ethhdr->type = htons(OS_ETHTYPE_PROFINET);
       dst_pos += sizeof(pf_ethhdr_t);
@@ -975,6 +1000,7 @@ int pf_dcp_hello_req(
       if (pf_cmina_dcp_get_req(net, PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_NAME,
                                &value_length, &p_value, &block_error) == 0)
       {
+        LOG_DEBUG(PF_DCP_LOG,"DCP(%d): Sending DCP Hello request. Station name: %s\n", __LINE__, (char *)p_value);
         (void)pf_dcp_put_block(p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
                                PF_DCP_OPT_DEVICE_PROPERTIES, PF_DCP_SUB_DEV_PROP_NAME, true, 0,
                                (uint16_t)strlen((char *)p_value), p_value);
@@ -1047,17 +1073,17 @@ int pf_dcp_hello_req(
  *          1     If the frame was handled and the buffer freed.
  */
 static int pf_dcp_identify_req(
-  pnet_t *net,
+  pnet_t                 *net,
   uint16_t                frame_id,
-  os_buf_t *p_buf,
+  os_buf_t               *p_buf,
   uint16_t                frame_id_pos,
-  void *p_arg)           /* Not used */
+  void                   *p_arg)           /* Not used */
 {
   int                     ret = 0;          /* Assume all OK */
   uint16_t                ix;
-  bool                    first = true;
+  bool                    first = true;     /* First of the blocks */
   bool                    match = false;    /* Is it for us? */
-  bool                    filter = false;
+  bool                    filter = false;   /* Is it IdentifyFilter or IdentifyAll? */
 
   uint8_t *p_src;
   uint16_t                src_pos = 0;
@@ -1078,9 +1104,9 @@ static int pf_dcp_identify_req(
   uint16_t                value_length;
   uint8_t *p_value;
   uint8_t                 block_error;
-  const pnet_cfg_t *p_cfg = NULL;
+  pnet_ethaddr_t          mac_address;
 
-  pf_fspm_get_default_cfg(net, &p_cfg);
+  pf_cmina_get_macaddr(net, &mac_address);
 
   LOG_DEBUG(PF_DCP_LOG, "DCP(%d): Incoming DCP identify request\n", __LINE__);
   /*
@@ -1116,7 +1142,7 @@ static int pf_dcp_identify_req(
     dst_start = dst_pos;
 
     memcpy(p_dst_ethhdr->dest.addr, p_src_ethhdr->src.addr, sizeof(pnet_ethaddr_t));
-    memcpy(p_dst_ethhdr->src.addr, p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t));
+    memcpy(p_dst_ethhdr->src.addr, mac_address.addr, sizeof(pnet_ethaddr_t));
     p_dst_ethhdr->type = htons(OS_ETHTYPE_PROFINET);
 
     /* Start with the request header and modify what is needed. */
@@ -1324,8 +1350,8 @@ static int pf_dcp_identify_req(
             {
               match = false;
             }
-#endif
             break;
+#endif
           case PF_DCP_SUB_DEV_PROP_INSTANCE:
             if (filter == true)
             {
@@ -1399,11 +1425,13 @@ static int pf_dcp_identify_req(
 
     if ((ret == 0) && (match == true))
     {
+      LOG_DEBUG(PF_DCP_LOG,"DCP(%d):   Match for incoming DCP identify request. Sending response.\n", __LINE__);
+
       /* Build the complete response */
       for (ix = 0; ix < NELEMENTS(device_options); ix++)
       {
         pf_dcp_get_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
-                       device_options[ix].opt, device_options[ix].sub);
+                       device_options[ix].opt, device_options[ix].sub, true);
       }
 
       /* Insert final response length and ship it! */
@@ -1411,12 +1439,13 @@ static int pf_dcp_identify_req(
       p_rsp->len = dst_pos;
 
       net->dcp_delayed_response_waiting = true;
-      response_delay = ((p_cfg->eth_addr.addr[4] * 256 + p_cfg->eth_addr.addr[5]) % ntohs(p_src_dcphdr->response_delay_factor)) * 10;
+      response_delay = ((mac_address.addr[4] * 256 + mac_address.addr[5]) % ntohs(p_src_dcphdr->response_delay_factor)) * 10;
       pf_scheduler_add(net, response_delay * 1000,
             dcp_sync_name, pf_dcp_responder, p_rsp, &net->dcp_timeout);
     }
     else
     {
+         LOG_DEBUG(PF_DCP_LOG,"DCP(%d):   No match for incoming DCP identify request.\n", __LINE__);
       os_buf_free(p_rsp);
     }
   }

@@ -58,9 +58,9 @@ void pf_ppm_init(
  * @return  0  always.
  */
 static int pf_ppm_state_ind(
-  pnet_t *net,
-  pf_ar_t *p_ar,
-  pf_ppm_t *p_ppm,
+  pnet_t                 *net,
+  pf_ar_t                *p_ar,
+  pf_ppm_t               *p_ppm,
   bool                    error)
 {
   if (error == true)
@@ -130,12 +130,15 @@ static void pf_ppm_init_buf(
   pos += sizeof(u16);
   u16 = htons(frame_id);
   memcpy(&p_payload[pos], &u16, sizeof(u16));
-  pos += sizeof(u16);
+   /* No further pos advancement, to suppress clang warning */
 }
 
 /**
  * @internal
  * Finalize a PPM transmit message.
+ *
+ * Insert data, cycle counter, data status and transfer status.
+ *
  * @param net              InOut: The p-net stack instance
  * @param p_ppm            In:   The PPM instance.
  * @param data_length      In:   The length of the message.
@@ -151,12 +154,18 @@ static void pf_ppm_finish_buffer(
   p_ppm->cycle += p_ppm->cycle_increment;
   u16 = htons((uint16_t)(p_ppm->cycle));
 
+   /* Insert data */
   os_mutex_lock(net->ppm_buf_lock);
   memcpy(&p_payload[p_ppm->buffer_pos], p_ppm->buffer_data, data_length);
   os_mutex_unlock(net->ppm_buf_lock);
 
+   /* Insert cycle counter */
   memcpy(&p_payload[p_ppm->cycle_counter_offset], &u16, sizeof(u16));
+
+   /* Insert data status */
   memcpy(&p_payload[p_ppm->data_status_offset], &p_ppm->data_status, sizeof(p_ppm->data_status));
+
+   /* Insert transfer status */
   memcpy(&p_payload[p_ppm->transfer_status_offset], &p_ppm->transfer_status, sizeof(p_ppm->transfer_status));
 }
 
@@ -202,7 +211,7 @@ static void pf_ppm_send(
     }
     else
     {
-      /* Compensate for the execution delay variations: */
+      // Compensate for the execution delay variations:
       const uint32_t half_tick_interval = net->scheduler_tick_interval / 2;
       if (pf_scheduler_add(net, p_arg->ppm.control_interval - half_tick_interval, ppm_sync_name, pf_ppm_send, arg, &p_arg->ppm.ci_timer) == 0)
       {
@@ -247,6 +256,8 @@ int pf_ppm_activate_req(
   {
     p_ar->err_cls = PNET_ERROR_CODE_1_PPM;
     p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
+    //LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
   }
   else
   {
@@ -438,12 +449,19 @@ int pf_ppm_set_data_and_iops(
     {
     case PF_PPM_STATE_W_START:
       p_ar->err_cls = PNET_ERROR_CODE_1_PPM;
-      p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
+      if(p_ar->err_code != 0)
+      {
+        LOG_WARNING(PNET_LOG, "%s(%i) err_code %d -> %d?\n", __FILE__, __LINE__, p_ar->err_code, PNET_ERROR_CODE_2_PPM_INVALID_STATE);
+      }
+      //p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
       LOG_DEBUG(PF_PPM_LOG, "PPM(%d): Set data in wrong state: %u\n", __LINE__, p_iocr->ppm.state);
       break;
     case PF_PPM_STATE_RUN:
       if ((data_len == p_iodata->data_length) && (iops_len == p_iodata->iops_length))
       {
+            CC_ASSERT(net->ppm_buf_lock != NULL);
         os_mutex_lock(net->ppm_buf_lock);
         if (data_len > 0)
         {
@@ -479,17 +497,17 @@ int pf_ppm_set_data_and_iops(
 }
 
 int pf_ppm_set_iocs(
-  pnet_t *net,
+  pnet_t                 *net,
   uint32_t                api_id,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
-  uint8_t *p_iocs,
+  uint8_t                *p_iocs,
   uint8_t                 iocs_len)
 {
   int                     ret = -1;
-  pf_iocr_t *p_iocr = NULL;
-  pf_iodata_object_t *p_iodata = NULL;
-  pf_ar_t *p_ar = NULL;
+  pf_iocr_t              *p_iocr = NULL;
+  pf_iodata_object_t     *p_iodata = NULL;
+  pf_ar_t                *p_ar = NULL;
 
   if (pf_ppm_get_ar_iocr_desc(net, api_id, slot_nbr, subslot_nbr, &p_ar, &p_iocr, &p_iodata) == 0)
   {
@@ -497,12 +515,18 @@ int pf_ppm_set_iocs(
     {
     case PF_PPM_STATE_W_START:
       p_ar->err_cls = PNET_ERROR_CODE_1_PPM;
-      p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+      if(p_ar->err_code != 0)
+      {
+        LOG_WARNING(PNET_LOG, "%s(%i) err_code %d -> %d??\n", __FILE__, __LINE__, p_ar->err_code, PNET_ERROR_CODE_2_PPM_INVALID_STATE);
+      }
+      //p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
       LOG_DEBUG(PF_PPM_LOG, "PPM(%d): Set iocs in wrong state: %u\n", __LINE__, p_iocr->ppm.state);
       break;
     case PF_PPM_STATE_RUN:
       if (iocs_len == p_iodata->iocs_length)
       {
+            CC_ASSERT(net->ppm_buf_lock != NULL);
         os_mutex_lock(net->ppm_buf_lock);
         memcpy(&p_iocr->ppm.buffer_data[p_iodata->iocs_offset], p_iocs, iocs_len);
         os_mutex_unlock(net->ppm_buf_lock);
@@ -555,12 +579,18 @@ int pf_ppm_get_data_and_iops(
     {
     case PF_PPM_STATE_W_START:
       p_ar->err_cls = PNET_ERROR_CODE_1_PPM;
-      p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+      if(p_ar->err_code != 0)
+      {
+        LOG_WARNING(PNET_LOG, "%s(%i) err_code %d -> %d???\n", __FILE__, __LINE__, p_ar->err_code, PNET_ERROR_CODE_2_PPM_INVALID_STATE);
+      }
+      //p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
       LOG_DEBUG(PF_PPM_LOG, "PPM(%d): Get data in wrong state: %u\n", __LINE__, p_iocr->ppm.state);
       break;
     case PF_PPM_STATE_RUN:
       if ((*p_data_len >= p_iodata->data_length) && (*p_iops_len >= p_iodata->iops_length))
       {
+            CC_ASSERT(net->ppm_buf_lock != NULL);
         os_mutex_lock(net->ppm_buf_lock);
         memcpy(p_data, &p_iocr->ppm.buffer_data[p_iodata->data_offset], p_iodata->data_length);
         memcpy(p_iops, &p_iocr->ppm.buffer_data[p_iodata->iops_offset], p_iodata->iops_length);
@@ -603,12 +633,12 @@ int pf_ppm_get_data_and_iops(
  *          -1 if an error occurred.
  */
 int pf_ppm_get_iocs(
-  pnet_t *net,
+  pnet_t                 *net,
   uint32_t                api_id,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
-  uint8_t *p_iocs,
-  uint8_t *p_iocs_len)
+  uint8_t                *p_iocs,
+  uint8_t                *p_iocs_len)
 {
   int                     ret = -1;
   pf_iocr_t *p_iocr = NULL;
@@ -621,12 +651,18 @@ int pf_ppm_get_iocs(
     {
     case PF_PPM_STATE_W_START:
       p_ar->err_cls = PNET_ERROR_CODE_1_PPM;
-      p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+      if (p_ar->err_code != 0)
+      {
+        LOG_WARNING(PNET_LOG, "%s(%i) err_code %d -> %d????\n", __FILE__, __LINE__, p_ar->err_code, PNET_ERROR_CODE_2_PPM_INVALID_STATE);
+      }
+      //p_ar->err_code = PNET_ERROR_CODE_2_PPM_INVALID_STATE;
+
       LOG_DEBUG(PF_PPM_LOG, "PPM(%d): Get iocs in wrong state: %u\n", __LINE__, p_iocr->ppm.state);
       break;
     case PF_PPM_STATE_RUN:
       if (*p_iocs_len >= p_iodata->iocs_length)
       {
+            CC_ASSERT(net->ppm_buf_lock != NULL);
         os_mutex_lock(net->ppm_buf_lock);
         memcpy(p_iocs, &p_iocr->ppm.buffer_data[p_iodata->iocs_offset], p_iodata->iocs_length);
         os_mutex_unlock(net->ppm_buf_lock);
@@ -725,7 +761,7 @@ int pf_ppm_get_data_status(
 }
 
 void pf_ppm_set_problem_indicator(
-  pf_ar_t *p_ar,
+  pf_ar_t                *p_ar,
   bool                    problem_indicator)
 {
   uint16_t                ix;

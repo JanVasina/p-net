@@ -657,12 +657,16 @@ static int pf_alarm_apmx_activate(
       p_ar->err_cls = PNET_ERROR_CODE_1_APMS;
       p_ar->err_code = PNET_ERROR_CODE_2_APMS_INVALID_STATE;
 
+      LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
+
       ret = -1;
     }
     else if (p_ar->apmx[ix].apmr_state != PF_APMR_STATE_CLOSED)
     {
       p_ar->err_cls = PNET_ERROR_CODE_1_APMR;
       p_ar->err_code = PNET_ERROR_CODE_2_APMR_INVALID_STATE;
+
+      LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
 
       ret = -1;
     }
@@ -833,10 +837,10 @@ static int pf_alarm_apms_a_data_req(
   os_buf_t               *p_rta;
   uint8_t                *p_buf = NULL;
   uint16_t                pos = 0;
-  const pnet_cfg_t       *p_cfg = NULL;
+   pnet_ethaddr_t          mac_address;
   uint16_t                u16 = 0;
 
-  pf_fspm_get_default_cfg(net, &p_cfg);
+   pf_cmina_get_macaddr(net, &mac_address);
 
   if (p_apmx->p_ar->alarm_cr_request.alarm_cr_properties.transport_udp == true)
   {
@@ -861,17 +865,25 @@ static int pf_alarm_apms_a_data_req(
       {
         /* Add Ethernet header */
         pf_put_mem(&p_apmx->da, sizeof(p_apmx->da), PF_FRAME_BUFFER_SIZE, p_buf, &pos);
-        memcpy(&p_buf[pos], p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t)); /* Interface MAC address */
+
+        /* Insert source MAC address (our interface MAC address) */
+        memcpy(&p_buf[pos], mac_address.addr, sizeof(pnet_ethaddr_t));
         pos += sizeof(pnet_ethaddr_t);
 
-        /* Add VLAN */
-        pf_put_uint16(true, OS_ETHTYPE_VLAN, PF_FRAME_BUFFER_SIZE, p_buf, &pos);       /* VLAN LT */
+        /* Insert VLAN Tag protocol identifier (TPID) */
+        pf_put_uint16(true, OS_ETHTYPE_VLAN, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
+
+        /* Insert VLAN prio (and VLAN ID=0) */
         u16 = (p_apmx->vlan_prio & 0x0007) << 13;  /* Three leftmost bits */
         pf_put_uint16(true, u16, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
 
-        pf_put_uint16(true, OS_ETHTYPE_PROFINET, PF_FRAME_BUFFER_SIZE, p_buf, &pos);   /* Real LT */
-        pf_put_uint16(true, p_apmx->frame_id, PF_FRAME_BUFFER_SIZE, p_buf, &pos); /* FrameID */
+        /* Insert EtherType */
+        pf_put_uint16(true, OS_ETHTYPE_PROFINET, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
 
+        /* Insert Profinet frame ID (first part of Ethernet frame payload) */
+        pf_put_uint16(true, p_apmx->frame_id, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
+
+        /* Insert alarm specific data */
         pf_put_alarm_fixed(true, p_fixed, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
 
         var_part_len_pos = pos;
@@ -895,16 +907,30 @@ static int pf_alarm_apms_a_data_req(
             pf_put_alarm_block(true, p_apmx->block_type_alarm_notify,
                                p_alarm_data, maint_status,
                                payload_usi, payload_len, p_payload, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
+
+
           }
         }
         else if (p_fixed->pdu_type.type == PF_RTA_PDU_TYPE_ERR)
         {
+          CC_ASSERT(p_pnio_status != NULL);
           pf_put_pnet_status(true, p_pnio_status, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
         }
         else
         {
           /* NACK or ACk does not take any var part. */
         }
+
+        if((p_pnio_status != NULL) && (p_pnio_status->error_code_2 == 0))
+        {
+          LOG_WARNING(PNET_LOG, "ALARM(%i) alarm 0x%02X 0x%02X 0x%02X 0x%02X\n",
+                      __LINE__,
+                      p_pnio_status->error_code,
+                      p_pnio_status->error_decode,
+                      p_pnio_status->error_code_1,
+                      p_pnio_status->error_code_2);
+        }
+
 
         /* Finally insert the correct VarPartLen */
         var_part_len = pos - (var_part_len_pos + sizeof(var_part_len));
@@ -981,8 +1007,6 @@ static int pf_alarm_apms_apms_a_data_req(
 
   if (p_apmx->apms_state != PF_APMS_STATE_OPEN)
   {
-    p_pnio_status->error_code_1 = PNET_ERROR_CODE_1_APMS;
-    p_pnio_status->error_code_2 = PNET_ERROR_CODE_2_APMS_INVALID_STATE;
     pf_alarm_alpmi_apms_a_data_cnf(net, p_apmx, -1);
     pf_alarm_alpmr_apms_a_data_cnf(net, p_apmx, -1);
   }
@@ -1018,6 +1042,15 @@ static int pf_alarm_apms_apms_a_data_req(
   return ret;
 }
 
+/**
+ * @internal
+ * Close APMX.
+ * @param net              InOut: The p-net stack instance
+ * @param p_ar             In:   The AR instance.
+ * @param err_code         In:   Error code. See PNET_ERROR_CODE_2_*
+ * @return  0  if operation succeeded.
+ *          -1 if an error occurred.
+ */
 static int pf_alarm_apmx_close(
   pnet_t                 *net,
   pf_ar_t                *p_ar,
@@ -1251,7 +1284,7 @@ static int pf_alarm_apmr_a_data_ind(
         }
         else
         {
-          LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Unhandled block type %#x\n", __LINE__, block_header.block_type);
+          LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Unhandled block type 0x%x\n", __LINE__, block_header.block_type);
           p_apmx->p_ar->err_cls = PNET_ERROR_CODE_1_ALPMR;
           p_apmx->p_ar->err_code = PNET_ERROR_CODE_2_ALPMR_WRONG_ALARM_PDU;
           pf_alarm_error_ind(net, p_apmx, p_apmx->p_ar->err_cls, p_apmx->p_ar->err_code);
@@ -1631,8 +1664,8 @@ int pf_alarm_periodic(
 }
 
 int pf_alarm_alpmr_alarm_ack(
-  pnet_t *net,
-  pf_ar_t *p_ar,
+  pnet_t             *net,
+  pf_ar_t            *p_ar,
   pnet_pnio_status_t *p_pnio_status)
 {
   int                     ret = -1;
@@ -1703,21 +1736,20 @@ int pf_alarm_alpmr_alarm_ack(
  *          -1 if an error occurred (or waiting for ACK from controller: re-try later).
  */
 static int pf_alarm_send_alarm(
-  pnet_t *net,
-  pf_ar_t *p_ar,
+  pnet_t                 *net,
+  pf_ar_t                *p_ar,
   pf_alarm_type_values_t  alarm_type,
   bool                    high_prio,
   bool                    tack,
   uint32_t                api_id,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
-  pf_diag_item_t *p_diag_item,
+  pf_diag_item_t         *p_diag_item,
   uint32_t                module_ident,
   uint32_t                submodule_ident,
   uint16_t                payload_usi,
   uint16_t                payload_len,
-  uint8_t *p_payload,
-  pnet_result_t *p_result)
+   uint8_t                *p_payload)
 {
   int                     ret = -1;
   pf_alarm_data_t         alarm_data;
@@ -1749,7 +1781,7 @@ static int pf_alarm_send_alarm(
                                           &alarm_data,
                                           maint_status,
                                           payload_usi, payload_len, p_payload,
-                                          (p_result != NULL) ? &p_result->pnio_status : NULL);
+                                          NULL);
 
       p_alpmx->alpmi_state = PF_ALPMI_STATE_W_ACK;
     }
@@ -1784,8 +1816,7 @@ int pf_alarm_send_process(
                              api_id, slot_nbr, subslot_nbr,
                              NULL,       /* p_diag_item */
                              0, 0,       /* module_ident, submodule_ident */
-                             payload_usi, payload_len, p_payload,
-                             NULL);      /* p_result */
+      payload_usi, payload_len, p_payload);
 }
 
 int pf_alarm_send_diagnosis(
@@ -1806,8 +1837,7 @@ int pf_alarm_send_diagnosis(
                               api_id, slot_nbr, subslot_nbr,
                               p_diag_item,
                               0, 0,       /* module_ident, submodule_ident */
-                              p_diag_item->usi, sizeof(*p_diag_item), (uint8_t *)p_diag_item,
-                              NULL);      /* p_result */
+         p_diag_item->usi, sizeof(*p_diag_item), (uint8_t *)p_diag_item);
   }
 
   return ret;
@@ -1844,8 +1874,7 @@ int pf_alarm_send_pull(
                             api_id, slot_nbr, subslot_nbr,
                             NULL,       /* p_diag_item */
                             0, 0,       /* module_ident, submodule_ident */
-                            0, 0, NULL, /* payload_usi, payload_len, p_payload, */
-                            NULL);      /* p_result */
+                            0, 0, NULL); /* payload_usi, payload_len, p_payload */
 
   return 0;
 }
@@ -1866,8 +1895,7 @@ int pf_alarm_send_plug(
                             api_id, slot_nbr, subslot_nbr,
                             NULL,       /* p_diag_item */
                             module_ident, submodule_ident,
-                            0, 0, NULL, /* payload_usi, payload_len, p_payload, */
-                            NULL);      /* p_result */
+                            0, 0, NULL); /* payload_usi, payload_len, p_payload */
 
   return 0;
 }
@@ -1888,14 +1916,14 @@ int pf_alarm_send_plug_wrong(
                             api_id, slot_nbr, subslot_nbr,
                             NULL,       /* p_diag_item */
                             module_ident, submodule_ident,
-                            0, 0, NULL, /* payload_usi, payload_len, p_payload, */
-                            NULL);      /* p_result */
+                            0, 0, NULL); /* payload_usi, payload_len, p_payload */
 
   return 0;
 }
 
-int pf_alarm_send(pnet_t *net, 
-                  pnet_pnio_status_t *p_pnio_status)
+void pf_alarm_send(
+  pnet_t             *net,
+  pnet_pnio_status_t *p_pnio_status)
 {
   os_buf_t *p_raw_buf = os_buf_alloc(PF_FRAME_BUFFER_SIZE);
   uint8_t *p_buf = p_raw_buf->payload;
@@ -1944,5 +1972,4 @@ int pf_alarm_send(pnet_t *net,
 
   os_eth_send(net->eth_handle, p_raw_buf);
   os_buf_free(p_raw_buf);
-  return 0;
 }

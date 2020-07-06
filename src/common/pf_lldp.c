@@ -41,6 +41,8 @@
 
 #define LLDP_IEEE_SUBTYPE_MAC_PHY         1
 
+static const char             *lldp_sync_name = "lldp";
+
 typedef enum lldp_pnio_subtype_values
 {
    LLDP_PNIO_SUBTYPE_RESERVED = 0,
@@ -73,7 +75,7 @@ static inline void pf_lldp_tlv_header(
    uint8_t                 typ,
    uint8_t                 len)
 {
-   pf_put_uint16(true, ((typ)<<9) + ((len) & 0x1ff), PF_FRAME_BUFFER_SIZE, p_buf, p_pos); \
+   pf_put_uint16(true, ((typ) << 9) + ((len) & 0x1ff), PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
 }
 
 /**
@@ -87,10 +89,9 @@ static inline void pf_lldp_tlv_header(
 static inline void pf_lldp_pnio_header(
    uint8_t                 *p_buf,
    uint16_t                *p_pos,
-   uint8_t                 typ,
    uint8_t                 len)
 {
-   pf_lldp_tlv_header(p_buf,p_pos,typ,(len)+3);
+   pf_lldp_tlv_header(p_buf, p_pos, LLDP_TYPE_ORG_SPEC, (len) + 3);
    pf_put_byte(0x00, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_byte(0x0e, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_byte(0xcf, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
@@ -107,10 +108,9 @@ static inline void pf_lldp_pnio_header(
 static inline void pf_lldp_ieee_header(
    uint8_t                 *p_buf,
    uint16_t                *p_pos,
-   uint8_t                 typ,
    uint8_t                 len)
 {
-   pf_lldp_tlv_header(p_buf, p_pos, typ, (len) + 3);
+   pf_lldp_tlv_header(p_buf, p_pos, LLDP_TYPE_ORG_SPEC, (len) + 3);
    pf_put_byte(0x00, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_byte(0x12, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_byte(0x0f, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
@@ -124,13 +124,17 @@ static inline void pf_lldp_ieee_header(
  * @param p_pos            InOut:The position in the buffer.
  */
 static void lldp_add_chassis_id_tlv(
+   pnet_t                  *net,
    pnet_cfg_t              *p_cfg,
    uint8_t                 *p_buf,
    uint16_t                *p_pos)
 {
    uint16_t                  len;
+   const char              *p_station_name = NULL;
 
-   len = (uint16_t)strlen(p_cfg->lldp_cfg.chassis_id);
+   (void)pf_cmina_get_station_name(net, &p_station_name);
+
+   len = (uint16_t)strlen(p_station_name);
    if (len == 0)
    {
       /* Use the MAC address */
@@ -146,7 +150,7 @@ static void lldp_add_chassis_id_tlv(
       pf_lldp_tlv_header(p_buf, p_pos, LLDP_TYPE_CHASSIS_ID, 1+len);
 
       pf_put_byte(LLDP_SUBTYPE_CHASSIS_ID_NAME, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
-      pf_put_mem(p_cfg->lldp_cfg.chassis_id, len, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
+      pf_put_mem(p_station_name, len, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    }
 }
 
@@ -202,7 +206,7 @@ static void lldp_add_port_status(
    uint8_t                 *p_buf,
    uint16_t                *p_pos)
 {
-   pf_lldp_pnio_header(p_buf, p_pos, LLDP_TYPE_ORG_SPEC, 5);
+   pf_lldp_pnio_header(p_buf, p_pos, 5);
 
    pf_put_byte(LLDP_PNIO_SUBTYPE_PORT_STATUS, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_uint16(true, p_cfg->lldp_cfg.rtclass_2_status, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
@@ -223,7 +227,7 @@ static void lldp_add_chassis_mac(
    uint8_t                 *p_buf,
    uint16_t                *p_pos)
 {
-   pf_lldp_pnio_header(p_buf, p_pos, LLDP_TYPE_ORG_SPEC, 1+sizeof(pnet_ethaddr_t));
+   pf_lldp_pnio_header(p_buf, p_pos, 1 + sizeof(pnet_ethaddr_t));
 
    pf_put_byte(LLDP_PNIO_SUBTYPE_INTERFACE_MAC, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    memcpy(&p_buf[*p_pos], p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t)); /* ToDo: Should be device MAC */
@@ -244,7 +248,7 @@ static void lldp_add_ieee_mac_phy(
    uint8_t                 *p_buf,
    uint16_t                *p_pos)
 {
-   pf_lldp_ieee_header(p_buf, p_pos, LLDP_TYPE_ORG_SPEC, 6);
+   pf_lldp_ieee_header(p_buf, p_pos, 6);
 
    pf_put_byte(LLDP_IEEE_SUBTYPE_MAC_PHY, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
    pf_put_byte(p_cfg->lldp_cfg.cap_aneg, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);
@@ -281,6 +285,34 @@ static void lldp_add_management(
    pf_put_byte(0, PF_FRAME_BUFFER_SIZE, p_buf, p_pos);       /* OID string length: 0 => Not supported */
 }
 
+/********************* Initialize and send **********************************/
+
+/**
+ * @internal
+ * Trigger sending a LLDP frame.
+ *
+ * This is a callback for the scheduler. Arguments should fulfill pf_scheduler_timeout_ftn_t
+ *
+ * Re-schedules itself after 5 s.
+ *
+ * @param net              InOut: The p-net stack instance
+ * @param arg              In:   Not used.
+ * @param current_time     In:   Not used.
+ */
+static void pf_lldp_trigger_sending(
+   pnet_t                  *net,
+   void                    *arg,
+   uint32_t                current_time)
+{
+      pf_lldp_send(net);
+
+      /* Reschedule */
+      if (pf_scheduler_add(net, PF_LLDP_INTERVAL*1000,
+         lldp_sync_name, pf_lldp_trigger_sending, NULL, &net->lldp_timeout) != 0)
+      {
+         LOG_ERROR(PF_ETH_LOG, "LLDP(%d): Failed to reschedule LLDP sending\n", __LINE__);
+      }
+}
 void pf_lldp_send(
    pnet_t                  *net)
 {
@@ -289,7 +321,7 @@ void pf_lldp_send(
    uint16_t                pos = 0;
    pnet_cfg_t              *p_cfg = NULL;
 
-   LOG_DEBUG(PF_ETH_LOG, "LLDP: Sending LLDP frame\n");
+   LOG_DEBUG(PF_ETH_LOG, "LLDP(%d): Sending LLDP frame\n", __LINE__);
 
    pf_fspm_get_cfg(net, &p_cfg);
    /*
@@ -355,7 +387,7 @@ void pf_lldp_send(
          pf_put_uint16(true, OS_ETHTYPE_LLDP, PF_FRAME_BUFFER_SIZE, p_buf, &pos);
 
          /* Add mandatory parts */
-         lldp_add_chassis_id_tlv(p_cfg, p_buf, &pos);
+         lldp_add_chassis_id_tlv(net, p_cfg, p_buf, &pos);
          lldp_add_port_id_tlv(p_cfg, p_buf, &pos);
          lldp_add_ttl_tlv(p_cfg, p_buf, &pos);
 
@@ -384,4 +416,9 @@ void pf_lldp_init(
    pnet_t                  *net)
 {
    pf_lldp_send(net);
+   if (pf_scheduler_add(net, PF_LLDP_INTERVAL*1000,
+      lldp_sync_name, pf_lldp_trigger_sending, NULL, &net->lldp_timeout) != 0)
+   {
+      LOG_ERROR(PF_ETH_LOG, "LLDP(%d): Failed to reschedule LLDP sending\n", __LINE__);
+   }
 }
