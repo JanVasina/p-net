@@ -50,20 +50,21 @@
 
 /********************* Call-back function declarations ************************/
 
-static int app_exp_module_ind(pnet_t *net, void *arg, uint16_t api, uint16_t slot, uint32_t module_ident_number);
-static int app_exp_submodule_ind(pnet_t *net, void *arg, uint16_t api, uint16_t slot, uint16_t subslot, uint32_t module_ident_number, uint32_t submodule_ident_number);
+static int app_exp_module_ind(pnet_t *net, void *arg, uint32_t api, uint16_t slot, uint32_t module_ident_number);
+static int app_exp_submodule_ind(pnet_t *net, void *arg, uint32_t api, uint16_t slot, uint16_t subslot, uint32_t module_ident_number, uint32_t submodule_ident_number);
 static int app_new_data_status_ind(pnet_t *net, void *arg, uint32_t arep, uint32_t crep, uint8_t changes, uint8_t data_status);
 static int app_connect_ind(pnet_t *net, void *arg, uint32_t arep, pnet_result_t *p_result);
 static int app_state_ind(pnet_t *net, void *arg, uint32_t arep, pnet_event_values_t state);
 static int app_release_ind(pnet_t *net, void *arg, uint32_t arep, pnet_result_t *p_result);
 static int app_dcontrol_ind(pnet_t *net, void *arg, uint32_t arep, pnet_control_command_t control_command, pnet_result_t *p_result);
 static int app_ccontrol_cnf(pnet_t *net, void *arg, uint32_t arep, pnet_result_t *p_result);
-static int app_write_ind(pnet_t *net, void *arg, uint32_t arep, uint16_t api, uint16_t slot, uint16_t subslot, uint16_t idx, uint16_t sequence_number, uint16_t write_length, uint8_t *p_write_data, pnet_result_t *p_result);
-static int app_read_ind(pnet_t *net, void *arg, uint32_t arep, uint16_t api, uint16_t slot, uint16_t subslot, uint16_t idx, uint16_t sequence_number, uint8_t **pp_read_data, uint16_t *p_read_length, pnet_result_t *p_result);
+static int app_write_ind(pnet_t *net, void *arg, uint32_t arep, uint32_t api, uint16_t slot, uint16_t subslot, uint16_t idx, uint16_t sequence_number, uint16_t write_length, uint8_t *p_write_data, pnet_result_t *p_result);
+static int app_read_ind(pnet_t *net, void *arg, uint32_t arep, uint32_t api, uint16_t slot, uint16_t subslot, uint16_t idx, uint16_t sequence_number, uint8_t **pp_read_data, uint16_t *p_read_length, pnet_result_t *p_result);
 static int app_alarm_cnf(pnet_t *net, void *arg, uint32_t arep, pnet_pnio_status_t *p_pnio_status);
 static int app_alarm_ind(pnet_t *net, void *arg, uint32_t arep, uint32_t api, uint16_t slot, uint16_t subslot, uint16_t data_len, uint16_t data_usi, uint8_t *p_data);
 static int app_alarm_ack_cnf(pnet_t *net, void *arg, uint32_t arep, int res);
 static int app_reset_ind(pnet_t *net, void *arg, bool should_reset_application, uint16_t reset_mode);
+static void app_plug_dap(pnet_t *net, void *arg);
 
 /******* list of supported modules and submodules                      ********/
 
@@ -187,6 +188,7 @@ const submodule_t cfg_available_submodule_types[NUMBER_OF_DEFINED_SUBMODULES] =
    {APP_API, PNET_MOD_256_O_IDENT, PNET_SUBMOD_CUSTOM_IDENT,               PNET_DIR_OUTPUT, 0, PNET_MOD_256_O_DATASIZE_OUTPUT },
 };
 
+
 static pf_device_t thisDevice;
 
 /************ Configuration of product ID, software version etc **************/
@@ -281,8 +283,9 @@ static pnet_cfg_t  pnet_default_cfg =
 
   .lldp_cfg =
   {
-   .chassis_id = "tgmmini",   /* Is this a valid name? '-' allowed?*/
-   .port_id = "port-001",
+// set below in main()
+//    .chassis_id = "a",   /* Is this a valid name? '-' allowed?*/
+//    .port_id = "port-001",
    .ttl = 20,          /* seconds */
    .rtclass_2_status = 0,
    .rtclass_3_status = 0,
@@ -301,6 +304,7 @@ static pnet_cfg_t  pnet_default_cfg =
   .p_default_device = &thisDevice,
   .check_peers_data = { 0, 0, { 0 }, 0, { 0 } },
 };
+
 
 /*********************************** Callbacks ********************************/
 
@@ -401,7 +405,7 @@ static int app_write_ind(
   pnet_t        *net,
   void          *arg,
   uint32_t       arep,
-  uint16_t       api,
+  uint32_t       api,
   uint16_t       slot,
   uint16_t       subslot,
   uint16_t       idx,
@@ -428,7 +432,7 @@ static int app_read_ind(
   pnet_t        *net,
   void          *arg,
   uint32_t       arep,
-  uint16_t       api,
+  uint32_t       api,
   uint16_t       slot,
   uint16_t       subslot,
   uint16_t       idx,
@@ -459,6 +463,7 @@ static int app_state_ind(
   uint16_t    err_cls = 0;
   uint16_t    err_code = 0;
   app_data_t *p_appdata = (app_data_t *)arg;
+  const char              *error_description = "";
 
   if (state == PNET_EVENT_ABORT)
   {
@@ -466,8 +471,29 @@ static int app_state_ind(
     {
       if (p_appdata->arguments.verbosity > 0)
       {
-        printf("Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u\n",
-               (unsigned)err_cls, (unsigned)err_code);
+        /* A few of the most common error codes */
+        switch (err_cls)
+        {
+        case 0:
+          error_description = "Unknown error class";
+          break;
+        case PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL:
+          switch (err_code)
+          {
+          case PNET_ERROR_CODE_2_ABORT_AR_CONSUMER_DHT_EXPIRED:
+            error_description = "AR_CONSUMER_DHT_EXPIRED";
+            break;
+          case PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT:
+            error_description = "ABORT_AR_CMI_TIMEOUT";
+            break;
+          case PNET_ERROR_CODE_2_ABORT_AR_RELEASE_IND_RECEIVED:
+            error_description = "Controller sent release request.";
+            break;
+          }
+          break;
+        }
+        printf("Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u  %s\n",
+               (unsigned)err_cls, (unsigned)err_code, error_description);
       }
     }
     else
@@ -553,7 +579,7 @@ static int app_reset_ind(
 static int app_exp_module_ind(
   pnet_t   *net,
   void     *arg,
-  uint16_t  api,
+  uint32_t  api,
   uint16_t  slot,
   uint32_t  module_ident)
 {
@@ -643,7 +669,7 @@ static int app_exp_module_ind(
 static int app_exp_submodule_ind(
   pnet_t  *net,
   void    *arg,
-  uint16_t api,
+  uint32_t api,
   uint16_t slot,
   uint16_t subslot,
   uint32_t module_ident,
@@ -1030,6 +1056,20 @@ void *pn_main(void *arg)
   return NULL;
 }
 
+/******************************************************************************/
+void app_plug_dap(pnet_t *net, void *arg)
+{
+  // Use existing callback functions to plug the (sub-)modules
+  app_exp_module_ind(net, arg, APP_API, PNET_SLOT_DAP_IDENT, PNET_MOD_DAP_IDENT);
+
+  app_exp_submodule_ind(net, arg, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_IDENT,
+                        PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_IDENT);
+  app_exp_submodule_ind(net, arg, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT,
+                        PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_IDENT);
+  app_exp_submodule_ind(net, arg, APP_API, PNET_SLOT_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT,
+                        PNET_MOD_DAP_IDENT, PNET_SUBMOD_DAP_INTERFACE_1_PORT_0_IDENT);
+}
+
 //////////////////////////////////////////////////////////////////////////
 
 static void faulthand(int32_t sig)
@@ -1108,6 +1148,18 @@ int main(int argc, char *argv[])
     b_station_name_set_by_cmd_line = true;
   }
 
+  // create default check peers data before read from disk (os_get_ip_suite())
+  strcpy(pnet_default_cfg.lldp_cfg.port_id, "port-001");
+  strcpy(pnet_default_cfg.lldp_cfg.chassis_id, "a");
+
+  pnet_default_cfg.check_peers_data.number_of_peers = 1;
+  pnet_default_cfg.check_peers_data.length_peer_port_id = 8;
+  strcpy(pnet_default_cfg.check_peers_data.peer_port_id, "port-001");
+  pnet_default_cfg.check_peers_data.length_peer_chassis_id = 1;
+  strcpy(pnet_default_cfg.check_peers_data.peer_chassis_id, "a");
+  // make a permanent copy
+  pnet_default_cfg.default_check_peers_data = pnet_default_cfg.check_peers_data;
+
   if (appdata.arguments.use_ip_settings == IP_SETTINGS_EMPTY)
   {
     ip_int = 0;
@@ -1157,6 +1209,13 @@ int main(int argc, char *argv[])
   print_ip_address("IP address:         ", ip_int);
   print_ip_address("Netmask:            ", netmask_int);
   print_ip_address("Gateway:            ", gateway_ip_int);
+  printf("\n");
+  printf("Check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n",
+         pnet_default_cfg.check_peers_data.number_of_peers,
+         pnet_default_cfg.check_peers_data.length_peer_port_id,
+         pnet_default_cfg.check_peers_data.peer_port_id,
+         pnet_default_cfg.check_peers_data.length_peer_chassis_id,
+         pnet_default_cfg.check_peers_data.peer_chassis_id);
   printf("\n\n");
 
   /* Set IP and gateway */
@@ -1168,6 +1227,7 @@ int main(int argc, char *argv[])
   strcpy(pnet_default_cfg.station_name, appdata.arguments.station_name);
   memcpy(pnet_default_cfg.eth_addr.addr, macbuffer.addr, sizeof(pnet_ethaddr_t));
   pnet_default_cfg.cb_arg = (void *)&appdata;
+
   memset(&thisDevice, 0, sizeof(thisDevice));
   fillDefaultIM0FilterData(&thisDevice);
 
@@ -1200,11 +1260,13 @@ int main(int argc, char *argv[])
   appdata_and_stack.appdata = &appdata;
   appdata_and_stack.net = net;
 
+  app_plug_dap(net, &appdata);
+
   /* Initialize timer */
   appdata.main_events = os_event_create();
   appdata.main_thread = os_thread_create("pn_main", APP_PRIO, APP_STACKSIZE, pn_main, (void *)&appdata_and_stack);
 
-#if 0
+#if 1
   appdata.main_timer = os_timer_create(TICK_INTERVAL_US, main_timer_tick, (void *)&appdata_and_stack, false);
   os_timer_start(appdata.main_timer);
 #else

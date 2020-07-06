@@ -73,11 +73,11 @@ void handleAlarmEvent(pnet_t *net, app_data_t *p_appdata)
   const int ret = pnet_alarm_send_ack(net, p_appdata->main_arep, &pnio_status);
   if (ret != 0)
   {
-    printf("Error when sending alarm ACK. Error: %d\n", ret);
+    os_log(LOG_LEVEL_ERROR, "Error when sending alarm ACK. Error: %d\n", ret);
   }
   else if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Alarm ACK sent\n");
+    os_log(LOG_LEVEL_INFO, "Alarm ACK sent\n");
   }
 }
 
@@ -93,7 +93,8 @@ void setupPluggedModules(pnet_t *net, app_data_t *p_appdata)
     {
       if (verbosity > 0)
       {
-        printf("  Setting input data and IOPS for slot %u subslot %u module ID 0x%X\n",
+        os_log(LOG_LEVEL_DEBUG, 
+               "  Setting input data and IOPS for slot %u subslot %u module ID 0x%X\n",
                slot,
                PNET_SUBMOD_CUSTOM_IDENT,
                pInputSlot->module_id);
@@ -113,7 +114,8 @@ void setupPluggedModules(pnet_t *net, app_data_t *p_appdata)
       {   
         if(p_appdata->b_disp_wrong_offset_warning != false)
         {
-          printf("setupPluggedModules: Wrong data offset (%u) or size (%u) for PLC memory of module ID 0x%X\n",
+          os_log(LOG_LEVEL_WARNING, 
+                 "setupPluggedModules: Wrong data offset (%u) or size (%u) for PLC memory of module ID 0x%X\n",
                  pInputSlot->data_offset,
                  (uint32_t)input_size,
                  pInputSlot->module_id);
@@ -127,7 +129,8 @@ void setupPluggedModules(pnet_t *net, app_data_t *p_appdata)
     {
       if (verbosity > 0)
       {
-        printf("  Setting output IOCS for slot %u subslot %u module ID 0x%X\n",
+        os_log(LOG_LEVEL_DEBUG,
+               "  Setting output IOCS for slot %u subslot %u module ID 0x%X\n",
                slot,
                PNET_SUBMOD_CUSTOM_IDENT,
                pOutputSlot->module_id);
@@ -168,7 +171,8 @@ void setInputDataToController(pnet_t *net, app_data_t *p_appdata)
       {
         if (p_appdata->b_disp_wrong_offset_warning != false)
         {
-          printf("setInputDataToController: Wrong data offset (%u) or size (%u) for PLC memory of module ID 0x%X\n",
+          os_log(LOG_LEVEL_WARNING, 
+                 "setInputDataToController: Wrong data offset (%u) or size (%u) for PLC memory of module ID 0x%X\n",
                  pInputSlot->data_offset,
                  (uint32_t)size,
                  module_id);
@@ -379,3 +383,4 @@ int readUserParameter(uint16_t       slot,
   p_result->pnio_status.error_code_2 = 0;
   return -1;
 }
+
