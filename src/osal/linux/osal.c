@@ -765,17 +765,19 @@ uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment)
   return 255;
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////
+
 int os_set_ip_suite(
-  void *arg,
+  void       *arg,
   os_ipaddr_t ipaddr,
   os_ipaddr_t netmask,
   os_ipaddr_t gw,
   bool        b_temporary)
 {
-  int rv                       = -1;
-  app_data_t *p_appdata        = (app_data_t *)arg;
+  int rv                = 0;
+  app_data_t *p_appdata = (app_data_t *)arg;
 
-   const uint32_t def_ip        = __builtin_bswap32(p_appdata->def_ip);
+  const uint32_t def_ip = __builtin_bswap32(p_appdata->def_ip);
 
   if (ipaddr == 0)
   {
@@ -794,13 +796,34 @@ int os_set_ip_suite(
     data.ip_suite.ip_mask    = __builtin_bswap32(netmask);
     data.ip_suite.ip_gateway = __builtin_bswap32(gw);
   }
-  FILE *fp = fopen(IP_SETTINGS_DATA_FILE_NAME, "w");
+
+  // first read the file and compare the contents
+  bool b_data_different = true;
+  FILE *fp = fopen(IP_SETTINGS_DATA_FILE_NAME, "r");
   if (fp != NULL)
   {
-    fwrite(&data, sizeof(data), 1, fp);
+    pf_full_ip_suite_t temp = { 0 };
+    fread(&temp, sizeof(temp), 1, fp);
     fclose(fp);
-    rv = 0;
-    system("sync");
+    if (memcmp(&temp, &data, sizeof(data)) == 0)
+    {
+      b_data_different = false;
+    }
+  }
+
+  if(b_data_different)
+  {
+    fp = fopen(IP_SETTINGS_DATA_FILE_NAME, "w");
+    if (fp != NULL)
+    {
+      fwrite(&data, sizeof(data), 1, fp);
+      fclose(fp);
+      system("sync");
+    }
+    else
+    {
+      rv = -1;
+    }
   }
 
   if (p_appdata->arguments.verbosity > 0)
@@ -821,7 +844,7 @@ int os_set_ip_suite(
 
 int os_set_station_name(void *arg, const char *name, bool b_temporary)
 {
-  int rv = -1;
+  int rv = 0;
   app_data_t *p_appdata = (app_data_t *)arg;
   if (p_appdata->arguments.verbosity > 0)
   {
@@ -836,30 +859,104 @@ int os_set_station_name(void *arg, const char *name, bool b_temporary)
   {
     strcpy(name_of_station, name);
   }
-  FILE *fp = fopen(NAME_OF_STATION_DATA_FILE_NAME, "w");
+
+  // first read the file and compare the contents
+  bool b_data_different = true;
+  FILE *fp = fopen(NAME_OF_STATION_DATA_FILE_NAME, "r");
   if (fp != NULL)
   {
-    fwrite(&name_of_station, sizeof(name_of_station), 1, fp);
+    char temp[STATTION_NAME_SIZE] = { 0 };
+    fread(temp, sizeof(temp), 1, fp);
     fclose(fp);
-    rv = 0;
-    system("sync");
+    if (memcmp(name_of_station, temp, sizeof(name_of_station)) == 0)
+    {
+      b_data_different = false;
+    }
+  }
+
+  if(b_data_different)
+  {
+    fp = fopen(NAME_OF_STATION_DATA_FILE_NAME, "w");
+    if (fp != NULL)
+    {
+      fwrite(&name_of_station, sizeof(name_of_station), 1, fp);
+      fclose(fp);
+      system("sync");
+    }
+    else
+    {
+      rv = -1;
+    }
   }
   return rv;
 }
 
-int os_save_im_data(pnet_t *net)
+int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data)
 {  
-  int rv = -1;
-  FILE *fp = fopen(IM_DATA_FILE_NAME, "w");
+  bool b_data_different = true;
+  int rv = 0;
+  // first read the file and compare the contents
+  FILE *fp = fopen(IM_DATA_FILE_NAME, "r");
   if (fp != NULL)
   {
-    fwrite(&(net->fspm_cfg.im_1_data), sizeof(net->fspm_cfg.im_1_data), 1, fp);
-    fwrite(&(net->fspm_cfg.im_2_data), sizeof(net->fspm_cfg.im_2_data), 1, fp);
-    fwrite(&(net->fspm_cfg.im_3_data), sizeof(net->fspm_cfg.im_3_data), 1, fp);
-    fwrite(&(net->check_peers_data), sizeof(net->check_peers_data), 1, fp);
+    pnet_im_1_t im_1_data = { 0 };
+    pnet_im_2_t im_2_data = { 0 };
+    pnet_im_3_t im_3_data = { 0 };
+    pf_check_peers_t temp = { 0 };
+
+    fread(&im_1_data, sizeof(im_1_data), 1, fp);
+    fread(&im_2_data, sizeof(im_2_data), 1, fp);
+    fread(&im_3_data, sizeof(im_3_data), 1, fp);
+    if (save_empty_check_peers_data == false)
+    {
+      fread(&temp, sizeof(temp), 1, fp);
+    }
     fclose(fp);
-    rv = 0;
-    system("sync");
+
+    b_data_different = false;
+    if (memcmp(&im_1_data, &(net->fspm_cfg.im_1_data), sizeof(im_1_data)) != 0)
+    {
+      b_data_different = true;
+    }
+    if (memcmp(&im_2_data, &(net->fspm_cfg.im_2_data), sizeof(im_2_data)) != 0)
+    {
+      b_data_different = true;
+    }
+    if (memcmp(&im_3_data, &(net->fspm_cfg.im_3_data), sizeof(im_3_data)) != 0)
+    {
+      b_data_different = true;
+    }
+    if (memcmp(&temp, &(net->check_peers_data), sizeof(temp)) != 0)
+    {
+      b_data_different = true;
+    }
+  }
+  
+  // save to disk only if data are different -> protect the SD card
+  if(b_data_different)
+  {
+    fp = fopen(IM_DATA_FILE_NAME, "w");
+    if (fp != NULL)
+    {
+      fwrite(&(net->fspm_cfg.im_1_data), sizeof(net->fspm_cfg.im_1_data), 1, fp);
+      fwrite(&(net->fspm_cfg.im_2_data), sizeof(net->fspm_cfg.im_2_data), 1, fp);
+      fwrite(&(net->fspm_cfg.im_3_data), sizeof(net->fspm_cfg.im_3_data), 1, fp);
+      if (save_empty_check_peers_data)
+      {
+        pf_check_peers_t temp = { 0 };
+        fwrite(&temp, sizeof(temp), 1, fp);
+      }
+      else
+      {
+        fwrite(&(net->check_peers_data), sizeof(net->check_peers_data), 1, fp);
+      }
+      fclose(fp);
+      system("sync");
+    }
+    else
+    {
+      rv = -1;
+    }
   }
   return rv;
 }
