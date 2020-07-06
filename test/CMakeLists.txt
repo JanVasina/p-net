@@ -15,7 +15,8 @@
 
 target_sources(pf_test PRIVATE
   # Unit tests
-  test_diag.cpp
+  test_alarm.cpp
+  test_block_reader.cpp
   test_cmdev.cpp
   test_cmdmc.cpp
   test_cmina.cpp
@@ -27,16 +28,18 @@ target_sources(pf_test PRIVATE
   test_cmsm.cpp
   test_cmsu.cpp
   test_cmwdr.cpp
-  test_alarm.cpp
   test_cpm.cpp
   test_dcp.cpp
+  test_diag.cpp
+  test_eth.cpp
   test_lldp.cpp
+  test_osal.cpp
   test_pnetapi.cpp
   test_ppm.cpp
   test_ptcp.cpp
   test_scheduler.cpp
-  test_eth.cpp
-  test_osal.cpp
+  utils_for_testing.h
+  utils_for_testing.cpp
 
   # Mocks
   mocks.h
@@ -61,6 +64,7 @@ target_sources(pf_test PRIVATE
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmpbe.c
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmrdr.c
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmrpc.c
+  ${PROFINET_SOURCE_DIR}/src/device/pf_cmrpc_helpers.c
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmrs.c
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmsm.c
   ${PROFINET_SOURCE_DIR}/src/device/pf_cmsu.c
