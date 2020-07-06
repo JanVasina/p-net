@@ -58,7 +58,7 @@ extern "C"
 #define PNET_OPTION_AR_VENDOR_BLOCKS                           1
 #define PNET_OPTION_RS                                         1
 #define PNET_OPTION_MC_CR                                      1
-#define PNET_OPTION_SRL                                        1
+#define PNET_OPTION_SRL                                        0
 
 /**
  * Disable use of atomic operations (stdatomic.h).
@@ -391,6 +391,18 @@ extern "C"
 #define PNET_ERROR_CODE_2_ABORT_DCP_RESET_TO_FACTORY           0x20
 #define PNET_ERROR_CODE_2_ABORT_PDEV_CHECK_FAILED              0x24
 
+typedef enum pnet_file_index
+{
+   PNET_FILE_INDEX_IP,
+   PNET_FILE_INDEX_DIAGNOSTICS,
+   PNET_FILE_INDEX_LOGBOOK,
+} pnet_file_index_t;
+/**
+ * # List of error_code_2 values, for
+ * PNET_ERROR_CODE_1_DCTRL_FAULTY_CONNECT (not exhaustive).
+ */
+#define PNET_ERROR_CODE_2_DCTRL_FAULTY_CONNECT_CONTROLCOMMAND  0x08
+
 /**
  * The events are sent from CMDEV to the application using the state_cb call-back function.
  */
@@ -518,6 +530,9 @@ typedef struct pf_check_peers
  * refused by the device.
  * In case of error the application should provide error information in \a p_result.
  *
+ * It is optional to implement this callback (assumes success if not
+ * implemented).
+ *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
  * @param arep             In:   The AREP.
@@ -539,6 +554,8 @@ typedef int (*pnet_connect_ind)(
  *
  * The connection will be closed regardless of the return value from this function.
  * In case of error the application should provide error information in \a p_result.
+ *
+ * It is optional to implement this callback.
  *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
@@ -565,6 +582,9 @@ typedef int (*pnet_release_ind)(
  * refused by the device.
  * In case of error the application should provide error information in \a p_result.
  *
+ * It is optional to implement this callback (assumes success if not
+ * implemented).
+ *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
  * @param arep             In:   The AREP.
@@ -588,6 +608,8 @@ typedef int (*pnet_dcontrol_ind)(
  *
  * The application is not required to take any action.
  * In case of error the application should provide error information in \a p_result.
+ *
+ * It is optional to implement this callback.
  *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
@@ -613,6 +635,9 @@ typedef int (*pnet_ccontrol_cnf)(
  * its setup and it is ready to exchange data.
  *
  * The return value from this call-back function is ignored by the Profinet stack.
+ *
+ * It is optional to implement this callback (but then it would be difficult
+ * to know when to call the \a pnet_application_ready() function).
  *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
@@ -662,7 +687,7 @@ typedef int (*pnet_read_ind)(
    pnet_t                  *net,
    void                    *arg,
    uint32_t                arep,
-   uint16_t                api,
+   uint32_t                api,
    uint16_t                slot,
    uint16_t                subslot,
    uint16_t                idx,
@@ -705,7 +730,7 @@ typedef int (*pnet_write_ind)(
    pnet_t                  *net,
    void                    *arg,
    uint32_t                arep,
-   uint16_t                api,
+   uint32_t                api,
    uint16_t                slot,
    uint16_t                subslot,
    uint16_t                idx,
@@ -741,7 +766,7 @@ typedef int (*pnet_write_ind)(
 typedef int (*pnet_exp_module_ind)(
    pnet_t                  *net,
    void                    *arg,
-   uint16_t                api,
+   uint32_t                api,
    uint16_t                slot,
    uint32_t                module_ident);
 
@@ -778,7 +803,7 @@ typedef int (*pnet_exp_module_ind)(
 typedef int (*pnet_exp_submodule_ind)(
    pnet_t                  *net,
    void                    *arg,
-   uint16_t                api,
+   uint32_t                api,
    uint16_t                slot,
    uint16_t                subslot,
    uint32_t                module_ident,
@@ -813,6 +838,8 @@ typedef int (*pnet_new_data_status_ind)(
 /**
  * The controller has sent an alarm to the device.
  *
+ * It is optional to implement this callback.
+ *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
  * @param arep             In:   The AREP.
@@ -840,6 +867,8 @@ typedef int (*pnet_alarm_ind)(
  * The controller acknowledges the alarm sent previously.
  * It is now possible to send another alarm.
  *
+ * It is optional to implement this callback.
+ *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
  * @param arep             In:   The AREP.
@@ -855,6 +884,8 @@ typedef int (*pnet_alarm_cnf)(
 
 /**
  * The controller acknowledges the alarm ACK sent previously.
+ *
+ * It is optional to implement this callback.
  *
  * @param net              InOut: The p-net stack instance
  * @param arg              InOut: User-defined data (not used by p-net)
@@ -916,6 +947,25 @@ typedef int (*pnet_reset_ind)(
    void                    *arg,
    bool                    should_reset_application,
    uint16_t                reset_mode);
+
+/**
+ * Indication to the application that the Profinet signal LED should change state.
+ *
+ * Use this callback to implement control of the LED.
+ *
+ * It is optional to implement this callback (but a complianct Profinet device
+ * must have a signal LED)
+ *
+ * @param net                       InOut: The p-net stack instance
+ * @param arg                       InOut: User-defined data (not used by p-net)
+ * @param led_state                 In:    True if the signal LED should be on.
+ * @return  0  on success.
+ *          -1 if an error occurred.
+ */
+typedef int (*pnet_signal_led_ind)(
+   pnet_t                  *net,
+   void                    *arg,
+   bool                    led_state);
 
 /*
  * Network and device configuration.
@@ -1019,6 +1069,10 @@ typedef struct pnet_cfg_device_id
  *
  * The Profinet stack also supports assigning an IP address, mask and gateway address
  * via DCP Set commands based on the Ethernet MAC address.
+ *
+ * An IP address of 1.0.0.0 has the member a=1, and the rest of the members
+ * set to 0.
+ *
  */
 typedef struct pnet_ip_addr_t
 {
@@ -1035,8 +1089,12 @@ typedef struct pnet_ethaddr
 {
   uint8_t addr[6];
 } pnet_ethaddr_t;
+
+/* LLDP Autonegotiation */
 #define PNET_LLDP_AUTONEG_SUPPORTED                            (1u << 0)
 #define PNET_LLDP_AUTONEG_ENABLED                              (1u << 1)
+
+/* LLDP Autonegotiation capabilities (not exhaustive) */
 #define PNET_LLDP_AUTONEG_CAP_1000BaseT_FULL_DUPLEX            (1ul << 0)
 #define PNET_LLDP_AUTONEG_CAP_1000BaseT_HALF_DUPLEX            (1ul << 1)
 #define PNET_LLDP_AUTONEG_CAP_1000BaseX_FULL_DUPLEX            (1ul << 2)
@@ -1046,6 +1104,8 @@ typedef struct pnet_ethaddr
 #define PNET_LLDP_AUTONEG_CAP_10BaseT_FULL_DUPLEX              (1ul << 13)
 #define PNET_LLDP_AUTONEG_CAP_10BaseT_HALF_DUPLEX              (1ul << 14)
 #define PNET_LLDP_AUTONEG_CAP_UNKNOWN                          (1ul << 15)
+
+/* LLDP MAU type (not exhaustive). See Profinet 2.4, section 5.2.13.12 */
 #define PNET_MAU_RADIO                                         0x0000
 #define PNET_MAU_COPPER_10BaseT                                0x0005
 #define PNET_MAU_COPPER_100BaseTX_HALF_DUPLEX                  0x000F
@@ -1098,6 +1158,7 @@ typedef struct pnet_cfg
    pnet_alarm_cnf          alarm_cnf_cb;
    pnet_alarm_ack_cnf      alarm_ack_cnf_cb;
    pnet_reset_ind          reset_cb;
+   pnet_signal_led_ind     signal_led_cb;
    void                    *cb_arg;    /* Userdata passed to callbacks, not used by stack */
 
    /** I&M initial data */
@@ -1130,6 +1191,7 @@ typedef struct pnet_cfg
 
    struct pf_device       *p_default_device;        // default device configuration
    pf_check_peers_t        check_peers_data;
+   pf_check_peers_t        default_check_peers_data;
 } pnet_cfg_t;
 
 /**
@@ -1346,8 +1408,11 @@ PNET_EXPORT int pnet_input_get_iocs(
  * This function may be called to retrieve the latest data and IOPS values
  * of a sub-slot sent from the controller.
  *
- * If new data and IOCS has arrived from the controller since the last call
+ * If a valid new data (and IOCS) frame has arrived from the IO-controller since
+ * your last call to this function (regardless of the slot/subslot arguments)
  * then the flag \a p_new_flag is set to true, else it is set to false.
+ * Note that this does not check whether the data content has changed from
+ * any previous frame.
  *
  * Note that the latest data and IOPS values are copied to the application
  * buffers regardless of the value of \a p_new_flag.
@@ -1451,6 +1516,21 @@ PNET_EXPORT int pnet_ar_abort(
    pnet_t                  *net,
    uint32_t                arep);
 
+/**
+ * Application requests factory reset of the device.
+ *
+ * Use this when you detect for example that a local hardware switch is used
+ * to do a factory reset.
+ *
+ * Also closes any open connections.
+ *
+ * @param net              InOut: The p-net stack instance
+ * @return  0  if the operation succeeded.
+ *          -1 if an error occurred.
+ */
+PNET_EXPORT int pnet_factory_reset(
+   pnet_t                  *net);
+   
 /**
  * Fetch error information from the AREP.
  *
