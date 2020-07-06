@@ -286,7 +286,7 @@ int pf_fspm_cm_write_ind(
       pf_get_im_1(&get_info, &pos, &net->fspm_cfg.im_1_data);
       if ((get_info.result == PF_PARSE_OK) && (pos == write_length))
       {
-        ret = os_save_im_data(net);
+        ret = os_save_im_data(net, false);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -309,7 +309,7 @@ int pf_fspm_cm_write_ind(
       {
         memcpy(&net->fspm_cfg.im_2_data, p_write_data, sizeof(net->fspm_cfg.im_2_data) - 1);
         net->fspm_cfg.im_2_data.im_date[sizeof(net->fspm_cfg.im_2_data) - 1] = '\0';
-        ret = os_save_im_data(net);
+        ret = os_save_im_data(net, false);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -332,7 +332,7 @@ int pf_fspm_cm_write_ind(
       {
         memcpy(&net->fspm_cfg.im_3_data, p_write_data, sizeof(net->fspm_cfg.im_3_data) - 1);
         net->fspm_cfg.im_3_data.im_descriptor[sizeof(net->fspm_cfg.im_3_data) - 1] = '\0';
-        ret = os_save_im_data(net);
+        ret = os_save_im_data(net, false);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -350,7 +350,7 @@ int pf_fspm_cm_write_ind(
       }
       break;
     case PF_IDX_SUB_IM_4:
-      // the I&M4 should not be writable - in GSD file is set Writeable_IM_Records="1 2 3"
+// hack for TGMmini: the I&M4 should not be writable - in GSD file is set Writeable_IM_Records="1 2 3"
 //       if (write_length == sizeof(net->fspm_cfg.im_4_data))
 //       {
 //         memcpy(&net->fspm_cfg.im_4_data, p_write_data, sizeof(net->fspm_cfg.im_4_data));
@@ -469,6 +469,7 @@ int pf_fspm_state_ind(
 {
   int ret = 0;
 
+   CC_ASSERT(p_ar != NULL);
   switch (event)
   {
   case    PNET_EVENT_ABORT:     LOG_INFO(PNET_LOG, "CMDEV event ABORT\n"); break;

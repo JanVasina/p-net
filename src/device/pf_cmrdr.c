@@ -168,7 +168,7 @@ static void pf_put_pdinterface_data_real(
   uint8_t               *p_res,
   uint16_t              *p_pos)
 {
-  const char *own_station_name = net->cmina_temp_dcp_ase.name_of_station;
+  const char *own_station_name = net->cmina_current_dcp_ase.name_of_station;
   const uint16_t station_name_len = (uint16_t)(strlen(own_station_name));
 
   uint16_t block_pos = *p_pos;
@@ -193,7 +193,7 @@ static void pf_put_pdinterface_data_real(
   
   pf_put_uint16(false, 0U, res_size, p_res, p_pos); // padding
 
-  const pf_ip_suite_t *p_ip_suite = &(net->cmina_temp_dcp_ase.full_ip_suite.ip_suite);
+  const pf_ip_suite_t *p_ip_suite = &(net->cmina_current_dcp_ase.full_ip_suite.ip_suite);
   pf_put_uint32(true, p_ip_suite->ip_addr, res_size, p_res, p_pos); // IpParameterValue.IpAddress
   pf_put_uint32(true, p_ip_suite->ip_mask, res_size, p_res, p_pos); // IpParameterValue.SubnetMask
   // IpParameterValue.Gateway
@@ -272,6 +272,36 @@ static void pf_put_pd_real_data(
 
 }
 
+// create RecordDataRead.DiagnosisData
+static void pf_put_channel_diagnosis_data(
+  pnet_t   *net,
+  uint32_t  api,
+  uint16_t  slot,
+  uint16_t  subslot,
+  uint16_t  error_code,
+  uint16_t  res_size,
+  uint8_t  *p_res,
+  uint16_t *p_pos)
+{
+  uint16_t block_pos = *p_pos;
+  pf_put_block_header(true, PF_BT_DIAGNOSIS_DATA, 0, // Don't know block_len yet
+                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW_1,
+                      res_size, p_res, p_pos);
+  pf_put_uint32(true, api, res_size, p_res, p_pos);
+  pf_put_uint16(true, slot, res_size, p_res, p_pos);
+  pf_put_uint16(true, subslot, res_size, p_res, p_pos);
+  pf_put_uint16(true, 0x8000, res_size, p_res, p_pos); // channel number
+  pf_put_uint16(true, 0x0800, res_size, p_res, p_pos); // channel properties
+  pf_put_uint16(true, PF_USI_CHANNEL_DIAGNOSIS, res_size, p_res, p_pos); // structure identifier
+  pf_put_uint16(true, 0x8000, res_size, p_res, p_pos); // ChannelDiagnosisData.ChannelNumber
+  pf_put_uint16(true, 0x0800, res_size, p_res, p_pos); // ChannelDiagnosisData.ChannelProperties
+  pf_put_uint16(true, error_code, res_size, p_res, p_pos); // 0x8001 = remote mismatch
+
+                                                       // Finally insert the block length into the block header
+  const uint16_t block_len = *p_pos - (block_pos + 4);
+  block_pos += offsetof(pf_block_header_t, block_length);   // Point to correct place
+  pf_put_uint16(true, block_len, res_size, p_res, &block_pos);
+}
 
 /**
 * @file
@@ -593,6 +623,22 @@ int pf_cmrdr_rm_read_ind(
       break;
     case PF_IDX_SUB_DIAGNOSIS_ALL:
       pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_FAULT_ALL, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
+
+      if(p_read_request->slot_number == 0 && p_read_request->subslot_number == 0x8001)
+      {
+        if (pf_check_peers_is_valid(&net->check_peers_data) == false)
+        {
+          pf_put_channel_diagnosis_data(net,
+                                        p_read_request->api,
+                                        p_read_request->slot_number,
+                                        p_read_request->subslot_number,
+                                        0x8001, // remote mismatch
+                                        res_size,
+                                        p_res,
+                                        p_pos);
+        }
+      }
+
       ret = 0;
       break;
     case PF_IDX_SUB_DIAGNOSIS_DMQS:
@@ -734,13 +780,22 @@ int pf_cmrdr_rm_read_ind(
        * b Only possible if CheckMAUType is part of the list
        */
 
+
       // the condition is here to satisfy Automated RT tester - Different Access Ways Test Case
+      // and Diagnosis Test Case
+      // 
       if (p_read_request->slot_number == 0 && p_read_request->subslot_number == 0x8001)
       {
-        if(   (opnum == PF_RPC_DEV_OPNUM_READ_IMPLICIT)
-           && memcmp(&p_read_request->target_ar_uuid, &null_uuid, sizeof(pf_uuid_t)) == 0)
+        bool b_check_peers_is_valid = pf_check_peers_is_valid(&net->check_peers_data);
+        if ((b_check_peers_is_valid == false)
+            || ((opnum == PF_RPC_DEV_OPNUM_READ_IMPLICIT)
+                              && memcmp(&p_read_request->target_ar_uuid, &null_uuid, sizeof(pf_uuid_t)) == 0))
         {
           pf_put_pdport_data_check(net, p_read_request, res_size, p_res, p_pos);
+          if ((p_ar != NULL) && (b_check_peers_is_valid == false))
+          {
+            pf_cmdev_prepare_submodule_diff(net, p_ar);
+          }
         }
         else
         {
@@ -748,6 +803,7 @@ int pf_cmrdr_rm_read_ind(
         }
         ret = 0;
       }
+
       break;
     case PF_IDX_SUB_PDPORT_DATA_ADJ:
       /* ToDo: Implement properly when LLDP is done */

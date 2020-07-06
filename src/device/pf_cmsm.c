@@ -13,18 +13,29 @@
  * full license information.
  ********************************************************************/
 
+/**
+ * @file
+ * @brief Implements the Context Management Surveillance Protocol Machine Device (CMSM)
+ *
+ * The CMSM component monitors the establishment of a connection.
+ * Once the device enters the DATA state this component is done.
+ *
+ * An incoming CMDEV event PNET_EVENT_STARTUP starts the timer,
+ * and PNET_EVENT_DATA or PNET_EVENT_ABORT stops the timer.
+ *
+ * In case the timer times out, the CMDEV state is set to PNET_EVENT_ABORT.
+ *
+ * The time is extended (timer is restarted) for incoming RPC read and write
+ * requests, if the timer is running.
+ *
+ * If there is no ongoing connection (p_ar == NULL), then the timer is not
+ * affected by the rest of the stack.
+ */
+
 #ifdef UNIT_TEST
 
 #endif
 
-
- /**
-  * @file
-  * @brief Implements the Context Management Surveillance Protocol Machine Device (CMSM)
-  *
-  * The CMSM component monitors the establishment of a connection.
-  * Once the device enters the DATA state this component is done.
-  */
 
 #include "pf_includes.h"
 
@@ -84,10 +95,10 @@ static void pf_cmsm_set_state(
   pf_ar_t *p_ar,
   pf_cmsm_state_values_t  state)
 {
-   assert(p_ar != NULL);
+   CC_ASSERT(p_ar != NULL);
   if (state != p_ar->cmsm_state)
   {
-    LOG_DEBUG(PNET_LOG, "CMSM(%d): New state %s\n", __LINE__, pf_cmsm_state_to_string(state));
+      LOG_INFO(PNET_LOG, "CMSM(%d): New state %s\n", __LINE__, pf_cmsm_state_to_string(state));
     p_ar->cmsm_state = state;
   }
 }
@@ -107,7 +118,7 @@ static void pf_cmsm_timeout(
   void *arg,
   uint32_t                current_time)
 {
-   assert(arg != NULL);
+  CC_ASSERT(arg != NULL);
   pf_ar_t *p_ar = (pf_ar_t *)arg;
 
   p_ar->cmsm_timer = UINT32_MAX;
@@ -117,10 +128,20 @@ static void pf_cmsm_timeout(
     /* Ignore */
     break;
   case PF_CMSM_STATE_RUN:
-    LOG_DEBUG(PNET_LOG, "CMSM(%d): TIMEOUT!! err_code %u\n",
-             __LINE__,
-             (uint32_t)p_ar->err_code);
+    LOG_ERROR(PNET_LOG, "CMSM(%d): Timeout for communication start up. CMDEV state: %s \n",
+         __LINE__,
+         pf_cmdev_state_to_string(p_ar->cmdev_state));
+    p_ar->err_cls = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
+    p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT;
+
     
+    /* TODO Remove when Bjarnes CControl resend is merged */
+    if (p_ar->cmdev_state == PF_CMDEV_STATE_W_ARDYCNF)
+    {
+       p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_RPC_CONTROL_ERROR;
+    }
+
+
     pf_cmdev_state_ind(net, p_ar, PNET_EVENT_ABORT);
     pf_cmsm_set_state(p_ar, PF_CMSM_STATE_IDLE);
     break;
@@ -146,9 +167,8 @@ int pf_cmsm_cmdev_state_ind(
     {
     case PNET_EVENT_STARTUP:
       pf_cmsm_set_state(p_ar, PF_CMSM_STATE_RUN);
-      LOG_DEBUG(PNET_LOG, "CMSM(%d): pf_cmsm_cmdev_state_ind: cm_initiator_activity_timeout_factor = %u\n",
-                __LINE__, 
-               (unsigned)p_ar->ar_param.cm_initiator_activity_timeout_factor);
+      LOG_INFO(PNET_LOG, "CMSM(%d): p_ar->ar_param.cm_initiator_activity_timeout_factor = %u\n",
+            __LINE__, (unsigned)p_ar->ar_param.cm_initiator_activity_timeout_factor);
       if (p_ar->cmsm_timer != UINT32_MAX)
       {
         pf_scheduler_remove(net, cmsm_sync_name, p_ar->cmsm_timer);
@@ -210,9 +230,6 @@ int pf_cmsm_rm_read_ind(
     case PF_CMSM_STATE_RUN:
       if (p_read_request->index == PF_IDX_DEV_CONN_MON_TRIGGER)
       {
-        LOG_INFO(PNET_LOG, "CMSM(%d): pf_cmsm_rm_read_ind: cm_initiator_activity_timeout_factor = %u\n",
-                 __LINE__,
-                 (unsigned)p_ar->ar_param.cm_initiator_activity_timeout_factor);
         /* Restart timeout period */
         if (p_ar->cmsm_timer != UINT32_MAX)
         {
@@ -255,9 +272,6 @@ int pf_cmsm_cm_read_ind(
       ret = 0;
       break;
    case PF_CMSM_STATE_RUN:
-     LOG_DEBUG(PNET_LOG, "CMSM(%d): pf_cmsm_cm_read_ind: cm_initiator_activity_timeout_factor = %u\n",
-              __LINE__,
-              (unsigned)p_ar->ar_param.cm_initiator_activity_timeout_factor);
      if (p_ar->cmsm_timer != UINT32_MAX)
       {
          pf_scheduler_remove(net, cmsm_sync_name, p_ar->cmsm_timer);
@@ -294,9 +308,6 @@ int pf_cmsm_cm_write_ind(
       ret = 0;
       break;
    case PF_CMSM_STATE_RUN:
-     LOG_DEBUG(PNET_LOG, "CMSM(%d): pf_cmsm_cm_write_ind: cm_initiator_activity_timeout_factor = %u\n",
-              __LINE__,
-              (unsigned)p_ar->ar_param.cm_initiator_activity_timeout_factor);
      if (p_ar->cmsm_timer != UINT32_MAX)
       {
          pf_scheduler_remove(net, cmsm_sync_name, p_ar->cmsm_timer);

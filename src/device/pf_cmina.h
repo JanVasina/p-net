@@ -38,6 +38,15 @@ void pf_cmina_show(
    pnet_t                  *net);
 
 /**
+ * Convert IPv4 address to string
+ * @param ip               In: IP address
+ * @param outputstring     Out: Resulting string. Should have length OS_INET_ADDRSTRLEN.
+ */
+void pf_cmina_ip_to_string(
+   os_ipaddr_t             ip,
+   char                    *outputstring);
+
+/**
  * Retrieve the configured station name of the device.
  * @param net              InOut: The p-net stack instance
  * @param pp_station_name  Out:  The station name.
@@ -60,7 +69,18 @@ int pf_cmina_get_ipaddr(
    os_ipaddr_t             *p_ipaddr);
 
 /**
- * Handle the DCP set command.
+ * Retrieve the MAC address.
+ * @param net              InOut: The p-net stack instance
+ * @param p_macaddr        Out:  The MAC address.
+ * @return  0  if the operation succeeded.
+ *          -1 if an error occurred.
+ */
+int pf_cmina_get_macaddr(
+   pnet_t                  *net,
+   pnet_ethaddr_t          *p_macaddr);
+
+/**
+ * Save one block of data for incoming DCP set command.
  *
  * Triggers the \a pnet_reset_ind() callback for some incoming DCP set commands.
  *
@@ -84,6 +104,28 @@ int pf_cmina_dcp_set_ind(
    uint8_t                 *p_block_error);
 
 /**
+ * Reset the configuration to default values.
+ *
+ * Triggers the application callback \a pnet_reset_ind() for some \a reset_mode
+ * values.
+ *
+ * Reset modes:
+ *
+ * 0:  Power-on reset
+ * 1:  Reset application parameters
+ * 2:  Reset communication parameters
+ * 99: Reset application and communication parameters.
+ *
+ * @param net              InOut: The p-net stack instance
+ * @param reset_mode       In:   Reset mode.
+ * @return  0  if the operation succeeded.
+ *          -1 if an error occurred.
+ */
+int pf_cmina_set_default_cfg(
+   pnet_t                  *net,
+   uint16_t                reset_mode);
+
+/**
  * Commit changes to the IP-suite.
  *
  * This shall be done _after_ the answer to DCP set has been sent.
@@ -93,7 +135,9 @@ void pf_cmina_dcp_set_commit(
    pnet_t                  *net);
 
 /**
- * Handle the DCP get command.
+ * Find size and data for one block to use in response to a DCP get command.
+ *
+ * Also used in DCP Hello and DCP Identify.
  * @param net              InOut: The p-net stack instance
  * @param opt              In:   The option key.
  * @param sub              In:   The sub-option key.
@@ -111,6 +155,32 @@ int pf_cmina_dcp_get_req(
    uint16_t                *p_value_length,
    uint8_t                 **pp_value,
    uint8_t                 *p_block_error);
+
+
+/************ Internal functions, made available for unit testing ************/
+
+bool pf_cmina_is_stationname_valid(
+   const char*             station_name,
+   uint16_t                len);
+
+bool pf_cmina_is_netmask_valid(
+   os_ipaddr_t            netmask);
+
+bool pf_cmina_is_ipaddress_valid(
+   os_ipaddr_t            netmask,
+   os_ipaddr_t            ip);
+
+bool pf_cmina_is_gateway_valid(
+   os_ipaddr_t             ip,
+   os_ipaddr_t             netmask,
+   os_ipaddr_t             gateway);
+
+bool pf_cmina_is_ipsuite_valid(
+   pf_ip_suite_t           *p_ipsuite);
+
+bool pf_cmina_is_full_ipsuite_valid(
+   pf_full_ip_suite_t      *p_full_ipsuite);
+
 
 #ifdef __cplusplus
 }
