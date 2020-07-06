@@ -34,7 +34,7 @@ Another separate Linux process (virtual PLC - not part of this project) then wor
 
 I tried to comment my changes to the original source code with C++ comments // in contrast to original C-like comments /*.
 
-When the original p-net source changes, I manually merge the changes as much as possible.
+When the original p-net source changes, I manually merge the changes as much as possible (source code only).
 Actual merge if from the master uploaded on the 1st of July 2020.
 
 
