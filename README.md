@@ -1,6 +1,45 @@
 p-net Profinet device stack
 ===========================
 
+This is a fork of original p-net Profinet device stack.
+I am trying to modify the source code such as the device is able to pass the test cases of the Automated RT Tester v 2.4.1.3.
+Up to now the following tests passed sucessfully:
+
+* all the DCP tests (with the exception of DCP - DCP Alias, which needs device 'b')
+* Behavior tests (scenarions 1 - 11)
+* Different Access Ways
+* Pdev_Records
+* AR - ASE
+* IP_UDP_RPC_I&M_EPM
+* VLAN
+* Diagnosis
+* SM_Legacy
+
+These are the tests where the port to port connection is sufficient.
+There are other tests for which a special equipment is necessary (device 'b', ethernet mains switch, etc.). Where the equipment will be available, I'll add further modifications.
+
+There are plenty of hacks in the source code (just to pass the tests) which probably break the design of the original p-net stack library.
+
+The code is modified for Zynqberry module from Trenz Electronics (TE-0726) which is very close to Raspberry 2B.
+
+There are four input modules (size 32, 64, 128, 256 bytes) and four output modules (32, 64, 128, bytes). Modules have
+fixed slot positions to ease programming of the application.
+
+I have created a simple makefile for everyday compile and cross-compile, please change the paths in it if you want to use it directly.
+Cross compiling is done on Windows with the raspberry gcc 8.3.0 taken from https://gnutoolchains.com/raspberry/.
+
+The Profinet device application (sample_app) uses shared linux memory where the data of inputs/outputs are stored/read. 
+Another separate Linux process (virtual PLC - not part of this project) then works with this data and can create a customized behavior 
+(together with a Simatic S7 PLC or other IO-controller).
+
+I tried to comment my changes to the original source code with C++ comments // in contrast to original C-like comments /*.
+
+When the original p-net source changes, I manually merge the changes as much as possible.
+Actual merge if from the master uploaded on the 1st of July 2020.
+
+
+Follows the original Readme.md file:
+
 Web resources
 -------------
 
@@ -18,11 +57,13 @@ implementations. It is easy to use and provides a small footprint. It
 is especially well suited for embedded systems where resources are
 limited and efficiency is crucial.
 
-It is written in C and can be run on bare-metal hardware, an RTOS such
-as rt-kernel, or on Linux. The main requirement is that the
+It is written in C and can be run on bare-metal hardware, an RTOS such as
+rt-kernel, or on Linux. The main requirement is that the
 platform can send and receive raw Ethernet Layer 2 frames. The
 p-net stack is supplied with full sources including a porting
 layer.
+
+Also C++ (any version) is supported.
 
 rt-labs p-net is developed according to specification 2.3:
 
@@ -45,7 +86,6 @@ Limitations:
 
 * IPv4 only
 * Only a single Ethernet interface (no media redundancy)
-* Only one stack instance
 
 This software is dual-licensed, with GPL version 3 and a commercial license.
 See LICENSE.md for more details.
@@ -68,6 +108,12 @@ For Linux:
 For rt-kernel:
 
 * Workbench 2017.1 or later
+
+An example of microcontroller we have been using is the Infineon XMC4800,
+which has an ARM Cortex-M4 running at 144 MHz, with 2 MB Flash and 352 kB RAM.
+It runs rt-kernel, and we have tested it with 9 Profinet slots each
+having 8 digital inputs and 8 digital outputs (one bit each). The values are
+sent and received each millisecond (PLC watchdog setting 3 ms).
 
 
 Contributions
