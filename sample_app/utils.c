@@ -177,6 +177,7 @@ int read_mac_address(char *interface_name, pnet_ethaddr_t *mac_addr)
   {
     memcpy(mac_addr->addr, ifr.ifr_hwaddr.sa_data, 6);
   }
+
   close(fd);
   return ret;
 }
@@ -189,17 +190,20 @@ int read_mac_address(char *interface_name, pnet_ethaddr_t *mac_addr)
 */
 uint32_t read_netmask(char *interface_name)
 {
-
+  int ret = 0;
   int fd;
   struct ifreq ifr;
-  uint32_t netmask;
+  uint32_t netmask = 0;
 
   fd = socket(AF_INET, SOCK_DGRAM, 0);
 
   ifr.ifr_addr.sa_family = AF_INET;
   strncpy(ifr.ifr_name, interface_name, IFNAMSIZ - 1);
-  ioctl(fd, SIOCGIFNETMASK, &ifr);
-  netmask = ((struct sockaddr_in *) & ifr.ifr_addr)->sin_addr.s_addr;
+  ret = ioctl(fd, SIOCGIFNETMASK, &ifr);
+  if(ret == 0)
+  {
+    netmask = ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
+  }
   close(fd);
 
   return netmask;
