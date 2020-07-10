@@ -61,7 +61,7 @@ static void *os_eth_task(void *thread_arg)
 //       os_usleep(200);
 //       continue;
 //     }
-    readlen = recv(eth_handle->socket, p->payload, p->len, 0);
+    readlen = recv(eth_handle->socket, p->payload, OS_BUF_MAX_SIZE, 0);
     if (readlen == -1)
     {
       os_usleep(200);
@@ -96,9 +96,9 @@ static void *os_eth_task(void *thread_arg)
 }
 
 os_eth_handle_t *os_eth_init(
-  const char *if_name,
+  const char        *if_name,
   os_eth_callback_t *callback,
-  void *arg)
+  void              *arg)
 {
   os_eth_handle_t *handle;
   struct ifreq            ifr;
