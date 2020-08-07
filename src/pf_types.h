@@ -54,7 +54,9 @@ static inline uint32_t atomic_fetch_sub(atomic_int *p, uint32_t v)
 }
 #endif
 
+#define PF_SYSLOG_PORT                    514
 #define PF_RPC_SERVER_PORT                0x8894   /* PROFInet Context Manager */
+#define PF_UDP_UNICAST_PORT               0x8892
 #define PF_PNET_SERVER_PORT               0xC000   
 #define PF_RPC_CCONTROL_EPHEMERAL_PORT    0xc001
 
@@ -65,6 +67,8 @@ typedef uint16_t os_ipport_t;
 #define PF_FRAME_BUFFER_SIZE  1500
 
 #define PF_MAX_UDP_PAYLOAD_SIZE           1440
+#define PF_LLDP_TIMEOUT                   10000000ULL // = 10s in us
+
 /*********************** RPC header ******************************************/
 
 /** Magic UUID values */
@@ -272,6 +276,7 @@ typedef enum pf_block_type_values
    PF_BT_PDPORT_DATA_ADJUST            = 0x0202,
    PF_BT_CHECK_PEERS                   = 0x020a,
    PF_BT_PDPORT_DATA_REAL              = 0x020f,
+   PF_BT_ADJUST_PEER_TO_PEER           = 0x0224,
    PF_BT_PDINTF_REAL                   = 0x0240,
    PF_BT_INTERFACE_ADJUST              = 0x0250,
    PF_BT_PORT_STATISTICS               = 0x0251,
@@ -761,6 +766,7 @@ typedef struct pf_eth_frame_id_map
 
 
 #define STATTION_NAME_SIZE (240+1)
+#define ALIAS_NAME_SIZE    (512)
 
 /*
  * Each struct in pf_cmina_dcp_ase_t is carefully laid out in order to use
@@ -1178,10 +1184,10 @@ typedef struct pf_dfp_iocr
 
 typedef struct pf_ir_info
 {
-   bool                    valid;
    pf_uuid_t               ir_data_uuid;
-   uint16_t                nbr_iocrs;                    /** Allowed 0, 2 */
    pf_dfp_iocr_t           dfp_iocrs[PNET_MAX_DFP_IOCR];
+   uint16_t                nbr_iocrs;                    /** Allowed 0, 2 */
+   bool                    valid;
 } pf_ir_info_t;
 
 typedef struct pf_sr_info
@@ -1468,6 +1474,8 @@ typedef struct pf_apmx
 
    uint16_t                exp_seq_count;
    uint16_t                exp_seq_count_o;
+   uint16_t                last_exp_seq_count_o; // copy of exp_seq_count_o in the time of port change alarm sent
+   uint16_t                channel_seq_number;
 
    /* The receive queue */
    os_mbox_t               *p_alarm_q;
@@ -1486,6 +1494,12 @@ typedef struct pf_apmx
    uint32_t                timeout_us;
    uint32_t                timeout_id;
    uint32_t                retry;
+
+   uint32_t                check_peers_alarm_retry;
+   os_buf_t                *p_check_peers_rta;
+   uint32_t                check_peers_timeout_id;
+   uint32_t                check_peers_timeout_us;
+
 } pf_apmx_t;
 
 typedef enum pf_alpmr_state_values
@@ -1534,10 +1548,10 @@ typedef enum pf_get_result
 
 typedef struct pf_get_info
 {
-   pf_get_result_t         result;
-   bool                    is_big_endian;
    uint8_t                 *p_buf;
+   pf_get_result_t         result;
    uint16_t                len;
+   bool                    is_big_endian;
 } pf_get_info_t;
 
 /*
@@ -2042,13 +2056,24 @@ struct pnet
    os_mutex_t                          *fspm_log_book_mutex;
    uint32_t                            lldp_timeout;  /* Scheduler handle for periodic LLDP sending */
    uint32_t                            rpc_alarm_timeout;
-   uint32_t                            ar_stopped_alarm_timeout;
    uint16_t                            alarm_src_reference;
    uint16_t                            alarm_dst_reference;
-   int                                 pnet_socket; // 0xC000
+   int                                 pnet_socket; // port: 0xC000
+   int                                 syslog_socket; // port: 514
    uint8_t                             pnet_req_frame[PF_FRAME_BUFFER_SIZE];
    uint8_t                             pnet_rsp_frame[PF_FRAME_BUFFER_SIZE];
-   pf_check_peers_t                    check_peers_data;
+   uint8_t                             syslog_frame[PF_FRAME_BUFFER_SIZE];
+   pf_check_peers_t                    lldp_check_peers_data; // data got by LLDP
+   pf_check_peers_t                    previous_lldp_check_peers_data; // previous data got by LLDP for comparison
+   pf_check_peers_t                    iocr_check_peers_data; // data at the time of established AR
+   pf_check_peers_t                    alarm_check_peers_data;
+   pf_check_peers_t                    temp_check_peers_data; // data written by controller
+   uint64_t                            last_valid_lldp_message_time;
+   pnet_ethaddr_t                      lldp_peer_mac_addr;    // peer MAC got by LLDP
+   uint32_t                            adjust_peer_to_peer_boundary; // value by write of PF_IDX_SUB_PDPORT_DATA_ADJ
+   uint32_t                            length_alias_name;
+   char                                alias_name[ALIAS_NAME_SIZE];
+   bool                                remote_peers_check_locked;
 };
 
 // useful null UUID for memcmp()

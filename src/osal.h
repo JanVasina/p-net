@@ -33,6 +33,7 @@ extern "C"
 #include "pf_types.h"
 
 // priorities
+#define LLDP_PRIO      0
 #define TIMER_PRIO     5
 #define ETH_PRIO      10
 #define APP_PRIO      15
@@ -84,6 +85,14 @@ typedef void os_timer_t;
 #ifndef OS_CHANNEL
 typedef void os_channel_t;
 #endif
+
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
 
 #define OS_MAKEU32(a,b,c,d) (((uint32_t)((a) & 0xff) << 24) | \
                              ((uint32_t)((b) & 0xff) << 16) | \
@@ -227,7 +236,7 @@ int os_set_station_name(
   bool        b_temporary);
 
 // save the im1 - im3 data
-int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data);
+int os_save_im_data(pnet_t *net);
 
 void os_set_led(
   void *arg,
