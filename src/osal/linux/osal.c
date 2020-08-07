@@ -1,7 +1,3 @@
-/*
-* This is an independent project of an individual developer. Dear PVS-Studio, please check it.
-* PVS-Studio Static Code Analyzer for C, C++, C#, and Java: http://www.viva64.com
-*/
 /*********************************************************************
  *        _       _         _
  *  _ __ | |_  _ | |  __ _ | |__   ___
@@ -44,19 +40,11 @@
 
 #define USE_RPMALLOC
 
-#define MAX_STATIC_BUFS 5 // (value find experimentally: 4) + 1
+#define MAX_STATIC_BUFS 10 
 #define BUF_SIZE        (2048 - sizeof(uint32_t))
 
 #define USECS_PER_SEC     (1 * 1000 * 1000)
 #define NSECS_PER_SEC     (1 * 1000 * 1000 * 1000)
-
-#define ANSI_COLOR_RED     "\x1b[31m"
-#define ANSI_COLOR_GREEN   "\x1b[32m"
-#define ANSI_COLOR_YELLOW  "\x1b[33m"
-#define ANSI_COLOR_BLUE    "\x1b[34m"
-#define ANSI_COLOR_MAGENTA "\x1b[35m"
-#define ANSI_COLOR_CYAN    "\x1b[36m"
-#define ANSI_COLOR_RESET   "\x1b[0m"
 
 //////////////////////////////////////////////////////////////////////////
 // static functions prototypes
@@ -79,36 +67,94 @@ static pbuf_t bufs[MAX_STATIC_BUFS];
 
 void os_log(int type, const char *fmt, ...)
 {
+  char   timestamp[16];
+  char   info[1024];
+  char   time_info[128];
+  size_t info_len;
   time_t rawtime;
-  struct tm *timeinfo;
+  struct tm *timestruct;
 
   os_mutex_lock(log_mutex);
   time(&rawtime);
-  timeinfo = localtime(&rawtime);
+  timestruct = localtime(&rawtime);
+  strftime(timestamp, sizeof(timestamp), "%H:%M:%S", timestruct);
 
   va_list list;
 
   switch (LOG_LEVEL_GET(type))
   {
   case LOG_LEVEL_DEBUG:
-    printf("%02d:%02d:%02d [DEBUG] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    snprintf(time_info, sizeof(time_info) - 1, "%s [DEBUG] ", timestamp);
     break;
   case LOG_LEVEL_INFO:
-    printf("%02d:%02d:%02d [" ANSI_COLOR_GREEN "INFO " ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    snprintf(time_info, sizeof(time_info) - 1, "%s [" ANSI_COLOR_GREEN "INFO " ANSI_COLOR_RESET "] ", timestamp);
     break;
   case LOG_LEVEL_WARNING:
-    printf("%02d:%02d:%02d [" ANSI_COLOR_MAGENTA "WARN " ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    snprintf(time_info, sizeof(time_info) - 1, "%s [" ANSI_COLOR_MAGENTA "WARN " ANSI_COLOR_RESET "] ", timestamp);
     break;
   case LOG_LEVEL_ERROR:
-    printf("%02d:%02d:%02d [" ANSI_COLOR_RED "ERROR" ANSI_COLOR_RESET "] ", timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+    snprintf(time_info, sizeof(time_info) - 1, "%s [" ANSI_COLOR_RED "ERROR" ANSI_COLOR_RESET "] ", timestamp);
     break;
-  default: break;
+  default: 
+    time_info[0] = '\0';
+    break;
   }
 
   va_start(list, fmt);
-  vprintf(fmt, list);
+  info_len = vsnprintf(info, sizeof(info)-1, fmt, list);
   va_end(list);
+
+  fputs(time_info, stdout);
+  if(info_len > 0)
+  {
+    fputs(info, stdout);
+  }
   fflush(stdout);
+
+  if(log_to_file)
+  {
+    bool b_flush = false;
+    FILE *fp = fopen(LOG_FILE_NAME, "at");
+    if (fp != NULL)
+    {
+      size_t time_info_len;
+      switch (LOG_LEVEL_GET(type))
+      {
+      case LOG_LEVEL_DEBUG:
+        time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [DEBUG] ", timestamp);
+        break;
+      case LOG_LEVEL_INFO:
+        time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [INFO ] ", timestamp);
+        break;
+      case LOG_LEVEL_WARNING:
+        time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [WARN ] ", timestamp);
+        b_flush = true;
+        break;
+      case LOG_LEVEL_ERROR:
+        time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [ERROR] ", timestamp);
+        b_flush = true;
+        break;
+      default:
+        time_info[0] = '\0';
+        time_info_len = 0;
+        break;
+      }
+      if (time_info_len > 0)
+      {
+        fwrite(time_info, time_info_len, 1, fp);
+      }
+      if (info_len > 0)
+      {
+        fwrite(info, info_len, 1, fp);
+      }
+      fclose(fp);
+      if(b_flush == true)
+      {
+        system("sync");
+      }
+    }
+  }
+
   os_mutex_unlock(log_mutex);
 }
 
@@ -121,7 +167,7 @@ void os_init(void *arg)
     int i2c_file = open_led();
     if ((i2c_file < 0) && (p_appdata->arguments.verbosity > 0))
     {
-      printf("[ERROR] Could not open LED: %s\r\n", strerror(errno));
+      os_log(LOG_LEVEL_ERROR, "Could not open LED: %s\r\n", strerror(errno));
     }
     p_appdata->i2c_file = i2c_file;
   }
@@ -156,8 +202,9 @@ void *os_malloc(size_t size)
 #endif // USE_RPMALLOC
   if(ptr == NULL)
   {
-    fprintf(stderr, "[ERROR] PNET: Not enough memory (wanted size %u).\nProgram is terminated\n",
-            size);
+    os_log(LOG_LEVEL_ERROR,
+           "PNET: Not enough memory (wanted size %u).\nProgram is terminated\n",
+           size);
     exit(EXIT_CODE_ERROR);
   }
   return ptr;
@@ -183,11 +230,14 @@ os_thread_t *os_thread_create(const char *name, int priority,
   pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN + stacksize);
 
 #if defined (USE_SCHED_FIFO)
-  CC_STATIC_ASSERT(_POSIX_THREAD_PRIORITY_SCHEDULING > 0);
-  struct sched_param param = { .sched_priority = priority };
-  pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-  pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
-  pthread_attr_setschedparam(&attr, &param);
+  if(priority > 0)
+  {
+    CC_STATIC_ASSERT(_POSIX_THREAD_PRIORITY_SCHEDULING > 0);
+    struct sched_param param = { .sched_priority = priority };
+    pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+    pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+    pthread_attr_setschedparam(&attr, &param);
+}
 #endif
 
   result = pthread_create(thread, &attr, entry, arg);
@@ -210,7 +260,6 @@ os_mutex_t *os_mutex_create(void)
   pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
   result = pthread_mutex_init(mutex, &attr);
 
-  result = pthread_mutex_init(mutex, NULL);
   if (result != 0)
   {
     return NULL;
@@ -462,6 +511,11 @@ os_mbox_t *os_mbox_create(size_t size)
 
 int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time)
 {
+  if (mbox == NULL)
+  {
+    return 1; // error
+  }
+
   struct timespec ts;
   int error = 0;
   uint64_t nsec = (uint64_t)time * 1000 * 1000;
@@ -514,6 +568,11 @@ timeout:
 
 int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time)
 {
+  if (mbox == NULL)
+  {
+    return 1; // error
+  }
+
   struct timespec ts;
   int error = 0;
   uint64_t nsec = (uint64_t)time * 1000 * 1000;
@@ -566,10 +625,15 @@ timeout:
 
 void os_mbox_destroy(os_mbox_t *mbox)
 {
-  pthread_cond_destroy(&mbox->cond);
-  pthread_mutex_destroy(&mbox->mutex);
-  os_free(mbox);
+  if(mbox != NULL)
+  {
+    pthread_cond_destroy(&mbox->cond);
+    pthread_mutex_destroy(&mbox->mutex);
+    os_free(mbox);
+  }
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
 
 static void *os_timer_thread(void *arg)
 {
@@ -891,7 +955,7 @@ int os_set_station_name(void *arg, const char *name, bool b_temporary)
   return rv;
 }
 
-int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data)
+int os_save_im_data(pnet_t *net)
 {  
   bool b_data_different = true;
   int rv = 0;
@@ -902,15 +966,14 @@ int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data)
     pnet_im_1_t im_1_data = { 0 };
     pnet_im_2_t im_2_data = { 0 };
     pnet_im_3_t im_3_data = { 0 };
-    pf_check_peers_t temp = { 0 };
+    pf_check_peers_t check_peers = { 0 };
+    uint32_t adjust_peer_boundary = 0;
 
     fread(&im_1_data, sizeof(im_1_data), 1, fp);
     fread(&im_2_data, sizeof(im_2_data), 1, fp);
     fread(&im_3_data, sizeof(im_3_data), 1, fp);
-    if (save_empty_check_peers_data == false)
-    {
-      fread(&temp, sizeof(temp), 1, fp);
-    }
+    fread(&check_peers, sizeof(check_peers), 1, fp);
+    fread(&adjust_peer_boundary, sizeof(adjust_peer_boundary), 1, fp);
     fclose(fp);
 
     b_data_different = false;
@@ -926,7 +989,11 @@ int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data)
     {
       b_data_different = true;
     }
-    if (memcmp(&temp, &(net->check_peers_data), sizeof(temp)) != 0)
+    if (memcmp(&check_peers, &(net->temp_check_peers_data), sizeof(check_peers)) != 0)
+    {
+      b_data_different = true;
+    }
+    if (adjust_peer_boundary != net->adjust_peer_to_peer_boundary)
     {
       b_data_different = true;
     }
@@ -941,15 +1008,8 @@ int os_save_im_data(pnet_t *net, bool save_empty_check_peers_data)
       fwrite(&(net->fspm_cfg.im_1_data), sizeof(net->fspm_cfg.im_1_data), 1, fp);
       fwrite(&(net->fspm_cfg.im_2_data), sizeof(net->fspm_cfg.im_2_data), 1, fp);
       fwrite(&(net->fspm_cfg.im_3_data), sizeof(net->fspm_cfg.im_3_data), 1, fp);
-      if (save_empty_check_peers_data)
-      {
-        pf_check_peers_t temp = { 0 };
-        fwrite(&temp, sizeof(temp), 1, fp);
-      }
-      else
-      {
-        fwrite(&(net->check_peers_data), sizeof(net->check_peers_data), 1, fp);
-      }
+      fwrite(&(net->temp_check_peers_data), sizeof(net->temp_check_peers_data), 1, fp);
+      fwrite(&(net->adjust_peer_to_peer_boundary), sizeof(net->adjust_peer_to_peer_boundary), 1, fp);
       fclose(fp);
       system("sync");
     }
@@ -1013,7 +1073,8 @@ int os_get_ip_suite(
     fread(&(p_device_cfg->im_1_data), sizeof(p_device_cfg->im_1_data), 1, fp);
     fread(&(p_device_cfg->im_2_data), sizeof(p_device_cfg->im_2_data), 1, fp);
     fread(&(p_device_cfg->im_3_data), sizeof(p_device_cfg->im_3_data), 1, fp);
-    fread(&(p_device_cfg->check_peers_data), sizeof(p_device_cfg->check_peers_data), 1, fp);
+    fread(&(p_device_cfg->temp_check_peers_data), sizeof(p_device_cfg->temp_check_peers_data), 1, fp);
+    fread(&(p_device_cfg->adjust_peer_to_peer_boundary), sizeof(p_device_cfg->adjust_peer_to_peer_boundary), 1, fp);
     fclose(fp);
   }
 

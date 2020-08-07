@@ -39,59 +39,59 @@ typedef pthread_mutex_t os_mutex_t;
 
 typedef struct os_sem
 {
-   pthread_cond_t cond;
-   pthread_mutex_t mutex;
-   size_t count;
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+  size_t count;
 } os_sem_t;
 
 typedef struct os_event
 {
-   pthread_cond_t cond;
-   pthread_mutex_t mutex;
-   uint32_t flags;
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+  uint32_t flags;
 } os_event_t;
 
 typedef struct os_mbox
 {
-   pthread_cond_t cond;
-   pthread_mutex_t mutex;
-   size_t r;
-   size_t w;
-   size_t count;
-   size_t size;
-   void * msg[];
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+  size_t r;
+  size_t w;
+  size_t count;
+  size_t size;
+  void * msg[];
 } os_mbox_t;
 
 typedef struct os_timer
 {
-   timer_t timerid;
-   os_thread_t * thread;
-   pid_t thread_id;
-   bool exit;
-   void(*fn) (struct os_timer *, void * arg);
-   void * arg;
-   uint32_t us;
-   bool oneshot;
+  os_thread_t *thread;
+  void(*fn) (struct os_timer *, void * arg);
+  void * arg;
+  uint32_t us;
+  timer_t timerid;
+  pid_t thread_id;
+  bool exit;
+  bool oneshot;
 } os_timer_t;
 
 typedef struct os_buf
 {
-   void * payload;
-   uint32_t len;
+  void * payload;
+  uint32_t len;
 } os_buf_t;
 
 /**
- * The prototype of raw Ethernet reception call-back functions.
- * *
- * @param arg              In:   User-defined (may be NULL).
- * @param p_buf            In:   The incoming Ethernet frame
- *
- * @return  0  If the frame was NOT handled by this function.
- *          1  If the frame was handled and the buffer freed.
- */
+  * The prototype of raw Ethernet reception call-back functions.
+  * *
+  * @param arg              In:   User-defined (may be NULL).
+  * @param p_buf            In:   The incoming Ethernet frame
+  *
+  * @return  0  If the frame was NOT handled by this function.
+  *          1  If the frame was handled and the buffer freed.
+  */
 typedef int (os_eth_callback_t)(
-   void                    *arg,
-   os_buf_t                *p_buf);
+  void                    *arg,
+  os_buf_t                *p_buf);
 
 typedef struct os_eth_handle
 {
@@ -100,8 +100,10 @@ typedef struct os_eth_handle
   ssize_t                 n_bytes_sent;
   os_eth_callback_t       *callback;
   void                    *arg;
-  int                     socket;
-  os_thread_t             *thread;
+  int                     pf_socket;
+  int                     lldp_socket;
+  os_thread_t             *pf_thread;
+  os_thread_t             *lldp_thread;
 } os_eth_handle_t;
 
 #ifdef __cplusplus

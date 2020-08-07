@@ -45,7 +45,7 @@ int os_udp_open(os_ipaddr_t addr, os_ipport_t port)
        .sin_port = htons(port),
        .sin_zero = { 0 },
     };
-    ret = bind(id, (struct sockaddr *) & local, sizeof(local));
+    ret = bind(id, (struct sockaddr *)&local, sizeof(local));
     if (ret != 0)
     {
       close(id);
@@ -75,14 +75,14 @@ int os_udp_sendto(uint32_t id,
      .sin_port = htons(dst_port),
      .sin_zero = { 0 },
   };
-  len = sendto(id, data, size, 0, (struct sockaddr *) & remote, sizeof(remote));
+  len = sendto(id, data, size, 0, (struct sockaddr *)&remote, sizeof(remote));
 
   return len;
 }
 
 int os_udp_recvfrom(uint32_t id,
-      os_ipaddr_t *src_addr,
-      os_ipport_t *src_port,
+                    os_ipaddr_t *src_addr,
+                    os_ipport_t *src_port,
                     uint8_t *data,
                     int size)
 {
@@ -91,11 +91,11 @@ int os_udp_recvfrom(uint32_t id,
   int  len;
 
   memset(&remote, 0, sizeof(remote));
-  len = recvfrom(id, data, size, MSG_DONTWAIT, (struct sockaddr *) & remote, &addr_len);
+  len = recvfrom(id, data, size, MSG_DONTWAIT, (struct sockaddr *)&remote, &addr_len);
   if (len > 0)
   {
-      *src_addr = ntohl(remote.sin_addr.s_addr);
-      *src_port = ntohs(remote.sin_port);
+    *src_addr = ntohl(remote.sin_addr.s_addr);
+    *src_port = ntohs(remote.sin_port);
   }
 
   return len;
@@ -103,7 +103,7 @@ int os_udp_recvfrom(uint32_t id,
 
 void os_udp_close(uint32_t id)
 {
-  if(id > 0)
+  if (id > 0)
   {
     close(id);
   }

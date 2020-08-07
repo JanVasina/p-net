@@ -1,3 +1,25 @@
+/****************************************************************************
+**
+** Copyright (C) 2020 TGDrives, s.r.o.
+** https://www.tgdrives.cz
+**
+** This file is part of the TGMmini Profinet I/O device.
+**
+**
+**  TGMmini Profinet I/O device free software:
+**  you can redistribute it and/or modify it under the terms of the
+**  GNU General Public License as published by the Free Software Foundation,
+**  either version 3 of the License, or (at your option) any later version.
+**
+**  TGMmini Profinet I/O device is distributed in the hope that it will be useful,
+**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+**  GNU General Public License for more details.
+**
+**  You should have received a copy of the GNU General Public License along with
+**  TGMmini Profinet I/O device. If not, see <https://www.gnu.org/licenses/>.
+**
+****************************************************************************/
 // i2c_led.c
 // LED handling through i2c bus
 
@@ -13,6 +35,7 @@
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 
+#include "log.h"
 #include "i2c_led.h"
 
 //////////////////////////////////////////////////////////////////////////
@@ -118,7 +141,7 @@ void i2c_access(int fd, struct i2c_msg *msg)
     int32_t err = ioctl(fd, I2C_RDWR, &args);
     if ((err != 1) && (b_disp_error))
     {
-      printf("[ERROR] LED access fails with err %i: %s\r\nAddress 0x%X %s len %u data[0] 0x%X\r\n",
+      os_log(LOG_LEVEL_ERROR, "LED access fails with err %i: %s\r\nAddress 0x%X %s len %u data[0] 0x%X\r\n",
               err,
               strerror(errno),
               msg->addr,
