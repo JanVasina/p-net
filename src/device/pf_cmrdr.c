@@ -29,22 +29,47 @@ static void pf_put_pdport_data_check(
   uint8_t               *p_res, 
   uint16_t              *p_pos)
 {
-  const uint16_t peer_port_id_len = strlen(net->check_peers_data.peer_port_id);
-  const uint16_t peer_chassis_len = strlen(net->check_peers_data.peer_chassis_id);
-  const uint16_t check_peers_data_len = 5 + peer_port_id_len + peer_chassis_len;
+  uint16_t block_pos_outer = *p_pos;
+  pf_check_peers_t *p_peers_data = &(net->temp_check_peers_data);
 
-  pf_put_block_header(true, PF_BT_PDPORT_DATA_CHECK, check_peers_data_len + 0xC, 1, 0, res_size, p_res, p_pos);
+  pf_put_block_header(true, PF_BT_PDPORT_DATA_CHECK, 0, // unknown data len yet
+                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
+                      res_size, p_res, p_pos);
   pf_put_uint16(true, 0U, res_size, p_res, p_pos); // padding
   pf_put_uint16(true, p_read_request->slot_number, res_size, p_res, p_pos); 
   pf_put_uint16(true, p_read_request->subslot_number, res_size, p_res, p_pos);
 
-  pf_put_block_header(true, PF_BT_CHECK_PEERS, check_peers_data_len, 1, 0, res_size, p_res, p_pos);
-  pf_put_byte(net->check_peers_data.number_of_peers, res_size, p_res, p_pos);
-  pf_put_byte(net->check_peers_data.length_peer_port_id, res_size, p_res, p_pos);
-  pf_put_str(net->check_peers_data.peer_port_id, peer_port_id_len, res_size, p_res, p_pos);
-  pf_put_byte(net->check_peers_data.length_peer_chassis_id, res_size, p_res, p_pos);
-  pf_put_str(net->check_peers_data.peer_chassis_id, peer_chassis_len, res_size, p_res, p_pos);
-  pf_put_uint16(true, 0U, res_size, p_res, p_pos); // padding
+  {
+    uint16_t block_pos_inner = *p_pos;
+    const uint16_t peer_port_id_len = p_peers_data->length_peer_port_id;
+    const uint16_t peer_chassis_len = p_peers_data->length_peer_chassis_id;
+
+    pf_put_block_header(true, PF_BT_CHECK_PEERS, 0, // unknown data len yet
+                        PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
+                        res_size, p_res, p_pos);
+    pf_put_byte(p_peers_data->number_of_peers, res_size, p_res, p_pos);
+    pf_put_byte(peer_port_id_len, res_size, p_res, p_pos);
+    if(peer_port_id_len > 0U)
+    {
+      pf_put_str(p_peers_data->peer_port_id, peer_port_id_len, res_size, p_res, p_pos);
+    }
+    pf_put_byte(peer_chassis_len, res_size, p_res, p_pos);
+    if(peer_chassis_len > 0U)
+    {
+      pf_put_str(p_peers_data->peer_chassis_id, peer_chassis_len, res_size, p_res, p_pos);
+    }
+    pf_put_uint16(true, 0U, res_size, p_res, p_pos); // padding
+
+    // insert the block length into the inner block header 
+    const uint16_t block_len_inner = *p_pos - (block_pos_inner + 4);
+    block_pos_inner += offsetof(pf_block_header_t, block_length);   // Point to correct place
+    pf_put_uint16(true, block_len_inner, res_size, p_res, &block_pos_inner);
+  }
+
+  // Finally insert the block length into the outer block header 
+  const uint16_t block_len_outer = *p_pos - (block_pos_outer + 4);
+  block_pos_outer += offsetof(pf_block_header_t, block_length);   // Point to correct place
+  pf_put_uint16(true, block_len_outer, res_size, p_res, &block_pos_outer);
 }
 
 
@@ -73,7 +98,16 @@ static int pf_put_pdport_data_real(
   
   pf_put_byte(port_id_len, res_size, p_res, p_pos);
   pf_put_mem(port_id, port_id_len, res_size, p_res, p_pos);
-  pf_put_byte(0x01, res_size, p_res, p_pos); // number of peers
+
+  if (os_get_current_time_us() > (net->last_valid_lldp_message_time + PF_LLDP_TIMEOUT))
+  {
+    // no peer detected
+    pf_put_byte(0, res_size, p_res, p_pos); // number of peers
+  }
+  else
+  {
+    pf_put_byte(0x01, res_size, p_res, p_pos); // number of peers
+  }
 
   // Pad with zeros until block length is a multiple of 4 bytes
   while ((((*p_pos) - block_pos) & 0x3) != 0)
@@ -81,16 +115,31 @@ static int pf_put_pdport_data_real(
     pf_put_byte(0, res_size, p_res, p_pos);
   }
 
-  pf_put_byte(8, res_size, p_res, p_pos);            // length peer name
-  pf_put_mem("port-003", 8, res_size, p_res, p_pos); // peer port name
-  pf_put_byte(1, res_size, p_res, p_pos);            // length station name
-  pf_put_byte('b', res_size, p_res, p_pos);          // peer station name 
-  pf_put_byte(0, res_size, p_res, p_pos);            // padding 1 byte
+  pf_put_byte(net->lldp_check_peers_data.length_peer_port_id, res_size, p_res, p_pos);            // length peer name
+  if(net->lldp_check_peers_data.length_peer_port_id > 0)
+  {
+    pf_put_mem(net->lldp_check_peers_data.peer_port_id, 
+               net->lldp_check_peers_data.length_peer_port_id, 
+               res_size, p_res, p_pos); // peer port name
+  }
+  pf_put_byte(net->lldp_check_peers_data.length_peer_chassis_id, res_size, p_res, p_pos);            // length station name
+  if(net->lldp_check_peers_data.length_peer_chassis_id > 0)
+  {
+    pf_put_mem(net->lldp_check_peers_data.peer_chassis_id, 
+               net->lldp_check_peers_data.length_peer_chassis_id,
+               res_size, p_res, p_pos);          // peer station name 
+  }
+
+  // Pad with zeros until block length is a multiple of 4 bytes
+  while ((((*p_pos) - block_pos) & 0x3) != 0)
+  {
+    pf_put_byte(0, res_size, p_res, p_pos);
+  }
                                                     
   pf_put_uint32(false, 0U, res_size, p_res, p_pos); // line delay 0 - unknown, can be little endian because of null value
-  // MAC address - 6 bytes
-  pf_put_mem(net->p_fspm_default_cfg->eth_addr.addr,
-              sizeof(net->p_fspm_default_cfg->eth_addr.addr), 
+  // peer MAC address - 6 bytes
+  pf_put_mem(&(net->lldp_peer_mac_addr),
+              sizeof(net->lldp_peer_mac_addr), 
               res_size, 
               p_res, 
               p_pos);
@@ -301,6 +350,109 @@ static void pf_put_channel_diagnosis_data(
   const uint16_t block_len = *p_pos - (block_pos + 4);
   block_pos += offsetof(pf_block_header_t, block_length);   // Point to correct place
   pf_put_uint16(true, block_len, res_size, p_res, &block_pos);
+}
+
+//
+// @internal
+// put diagnosis data to buffer
+// @param net              InOut : The p - net stack instance
+// @param p_read_request   In : The read request.
+// @param res_len          In : Size of destination buffer.
+// @param p_bytes          Out : Destination buffer.
+// @param p_pos            InOut : Position in destination buffer.
+// 
+static void pf_put_channel_ext_diagnosis_data(
+  pnet_t                 *net,
+  pf_iod_read_request_t  *p_read_request,
+  uint16_t                channel_error_type,
+  uint16_t                ext_channel_error_type,
+  uint16_t                res_len,
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
+{
+  uint16_t                block_pos = *p_pos;
+  uint16_t                block_len = 0;
+  const bool              is_big_endian = true;
+
+  /* Insert block header for the output block */
+  pf_put_block_header(is_big_endian,
+                      PF_BT_DIAGNOSIS_DATA,
+                      0,                      /* Dont know block_len yet */
+                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW_1,
+                      res_len, p_bytes, p_pos);
+
+  pf_put_uint32(is_big_endian, p_read_request->api, res_len, p_bytes, p_pos);
+  // write ext channel diagnosis
+  // Table 8 - IODReadRes.RecordDataRead.DiagnosisData.ExtChannelDiagnosis
+  // file: TCIS_00000005_Pdev_Check_onePort_v2.35.3.00006.pdf
+  // 
+  pf_put_uint16(is_big_endian, p_read_request->slot_number, res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, p_read_request->subslot_number, res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, 0x8000, res_len, p_bytes, p_pos); // channel number
+  pf_put_uint16(is_big_endian, 0x0800, res_len, p_bytes, p_pos); // channel properties
+  pf_put_uint16(is_big_endian, PF_USI_EXTENDED_CHANNEL_DIAGNOSIS, res_len, p_bytes, p_pos); // user structure identifier
+
+  pf_put_uint16(is_big_endian, 0x8000, res_len, p_bytes, p_pos); // channel number
+  pf_put_uint16(is_big_endian, 0x0800, res_len, p_bytes, p_pos); // channel properties
+  pf_put_uint16(is_big_endian, channel_error_type, res_len, p_bytes, p_pos); // channel error type = remote mismatch
+  pf_put_uint16(is_big_endian, ext_channel_error_type, res_len, p_bytes, p_pos); // ext channel error type = no peer detected
+
+  pf_put_uint32(is_big_endian, 0, res_len, p_bytes, p_pos); // ext channel add value
+
+ // Finally insert the block length into the block header 
+  block_len = *p_pos - (block_pos + 4);
+  block_pos += offsetof(pf_block_header_t, block_length);   // Point to correct place
+  pf_put_uint16(is_big_endian, block_len, res_len, p_bytes, &block_pos);
+
+}
+
+// write pd port data diagnostics to buffer
+// Table 6 - PDPortDataAdjust with AdjustPeerToPeerBoundary
+// file: TCIS_00000005_Pdev_Check_onePort_v2.35.3.00006.pdf
+static void pf_put_pd_port_data_adjust(
+  pnet_t                 *net,
+  pf_iod_read_request_t  *p_read_request,
+  uint16_t                res_len,
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
+{
+  uint16_t                block_pos_outer = *p_pos;
+  const bool              is_big_endian = true;
+
+  /* Insert block header for the output block */
+  pf_put_block_header(is_big_endian,
+                      PF_BT_PDPORT_DATA_ADJUST,
+                      0,                      /* Dont know block_len yet */
+                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
+                      res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, 0, res_len, p_bytes, p_pos); // padding
+  pf_put_uint16(is_big_endian, p_read_request->slot_number, res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, p_read_request->subslot_number, res_len, p_bytes, p_pos);
+  
+  {
+    uint16_t              block_pos_inner = *p_pos;
+
+    pf_put_block_header(is_big_endian,
+                        PF_BT_ADJUST_PEER_TO_PEER,
+                        0,                      /* Dont know block_len yet */
+                        PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
+                        res_len, p_bytes, p_pos);
+    pf_put_uint16(is_big_endian, 0, res_len, p_bytes, p_pos); // padding
+    pf_put_uint32(is_big_endian, net->adjust_peer_to_peer_boundary, res_len, p_bytes, p_pos);
+    pf_put_uint16(is_big_endian, 0, res_len, p_bytes, p_pos); // adjust properties
+    pf_put_uint16(is_big_endian, 0, res_len, p_bytes, p_pos); // padding
+
+    // insert the block length into the inner block header 
+    const uint16_t block_len_inner = *p_pos - (block_pos_inner + 4);
+    block_pos_inner += offsetof(pf_block_header_t, block_length);   // Point to correct place
+    pf_put_uint16(true, block_len_inner, res_len, p_bytes, &block_pos_inner);
+  }
+
+  // Finally insert the block length into the outer block header 
+  const uint16_t block_len_outer = *p_pos - (block_pos_outer + 4);
+  block_pos_outer += offsetof(pf_block_header_t, block_length);   // Point to correct place
+  pf_put_uint16(true, block_len_outer, res_len, p_bytes, &block_pos_outer);
+
 }
 
 /**
@@ -626,7 +778,7 @@ int pf_cmrdr_rm_read_ind(
 
       if(p_read_request->slot_number == 0 && p_read_request->subslot_number == 0x8001)
       {
-        if (pf_check_peers_is_valid(&net->check_peers_data) == false)
+        if (pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->temp_check_peers_data)) != 0)
         {
           pf_put_channel_diagnosis_data(net,
                                         p_read_request->api,
@@ -642,10 +794,53 @@ int pf_cmrdr_rm_read_ind(
       ret = 0;
       break;
     case PF_IDX_SUB_DIAGNOSIS_DMQS:
-      pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_ALL, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
+      // Pdev_Check_onePort test case: the LLDP of device 'b' has been switched off
+      if (   (p_read_request->slot_number == 0)
+          && (p_read_request->subslot_number == 0x8001)
+          && (opnum == PF_RPC_DEV_OPNUM_READ_IMPLICIT))
+      {
+        uint16_t ext_channel_error = 0;
+        if (os_get_current_time_us() > (net->last_valid_lldp_message_time + PF_LLDP_TIMEOUT))
+        {
+          LOG_WARNING(PNET_LOG, "CMRDR(%d): DIAGNOSIS_DMQS: timeout %llu\n", 
+                   __LINE__,
+                   net->last_valid_lldp_message_time);
+          pf_put_channel_ext_diagnosis_data(net,
+                                            p_read_request,
+                                            0x8001, // remote mismatch
+                                            0x8005, // no peer detected
+                                            res_size,
+                                            p_res,
+                                            p_pos);
+        }
+        else if ((ext_channel_error=pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->temp_check_peers_data))) != 0U)
+        {
+          LOG_WARNING(PNET_LOG, "CMRDR(%d): DIAGNOSIS_DMQS: different check peers: 0x%X\n",
+                   __LINE__,
+                   ext_channel_error);
+          pf_put_channel_ext_diagnosis_data(net,
+                                            p_read_request,
+                                            0x8001,            // remote mismatch
+                                            ext_channel_error, // peer name of station mismatch
+                                            res_size,
+                                            p_res,
+                                            p_pos);
+        }
+        else
+        {
+          pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_ALL, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
+        }
+      }
+      else
+      {
+        pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_ALL, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
+      }
       ret = 0;
       break;
     case PF_IDX_SUB_DIAG_MAINT_REQ_CH:
+      pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_M_REQ, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
+      ret = 0;
+      break;
     case PF_IDX_SUB_DIAG_MAINT_REQ_ALL:
       pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_SUBSLOT, PF_DIAG_FILTER_M_REQ, NULL, p_read_request->api, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
       ret = 0;
@@ -726,7 +921,7 @@ int pf_cmrdr_rm_read_ind(
       break;
 
     case PF_IDX_DEV_DIAGNOSIS_DMQS:
-      pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_DEVICE, PF_DIAG_FILTER_ALL, NULL, 0, 0, 0, res_size, p_res, p_pos);
+      pf_put_diag_data(net, true, PF_DEV_FILTER_LEVEL_DEVICE, PF_DIAG_FILTER_ALL, p_ar, 0, p_read_request->slot_number, p_read_request->subslot_number, res_size, p_res, p_pos);
       ret = 0;
       break;
 
@@ -786,13 +981,13 @@ int pf_cmrdr_rm_read_ind(
       // 
       if (p_read_request->slot_number == 0 && p_read_request->subslot_number == 0x8001)
       {
-        bool b_check_peers_is_valid = pf_check_peers_is_valid(&net->check_peers_data);
-        if ((b_check_peers_is_valid == false)
+        uint16_t b_check_peers_is_valid = pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->temp_check_peers_data));
+        if ((b_check_peers_is_valid != 0U)
             || ((opnum == PF_RPC_DEV_OPNUM_READ_IMPLICIT)
-                              && memcmp(&p_read_request->target_ar_uuid, &null_uuid, sizeof(pf_uuid_t)) == 0))
+                 && memcmp(&p_read_request->target_ar_uuid, &null_uuid, sizeof(pf_uuid_t)) == 0))
         {
           pf_put_pdport_data_check(net, p_read_request, res_size, p_res, p_pos);
-          if ((p_ar != NULL) && (b_check_peers_is_valid == false))
+          if ((p_ar != NULL) && (b_check_peers_is_valid != 0U))
           {
             pf_cmdev_prepare_submodule_diff(net, p_ar);
           }
@@ -803,7 +998,6 @@ int pf_cmrdr_rm_read_ind(
         }
         ret = 0;
       }
-
       break;
     case PF_IDX_SUB_PDPORT_DATA_ADJ:
       /* ToDo: Implement properly when LLDP is done */
@@ -815,9 +1009,17 @@ int pf_cmrdr_rm_read_ind(
        *   [AdjustPreambleLength], [AdjustMAUTypeExtension] a }
        * a Only possible if AdjustMAUType is part of the list
        */
+      // distinguish between Different Access Ways and Pdev_Check_one_Port test cases
       if (p_read_request->slot_number == 0 && p_read_request->subslot_number == 0x8001)
       {
-        pf_put_zero_length_block_header(res_size, PF_BT_PDPORT_DATA_ADJUST, p_res, p_pos);
+        if(net->adjust_peer_to_peer_boundary != 0)
+        {
+          pf_put_pd_port_data_adjust(net, p_read_request, res_size, p_res, p_pos);
+        }
+        else // otherwise Different Access Ways test case
+        {
+          pf_put_zero_length_block_header(res_size, PF_BT_PDPORT_DATA_ADJUST, p_res, p_pos);
+        }
         ret = 0;
       }
       break;

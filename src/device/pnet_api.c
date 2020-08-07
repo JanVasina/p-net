@@ -52,6 +52,10 @@ pnet_t* pnet_init(
   }
   strcpy(net->interface_name, netif);
   net->cmdev_initialized = false;  /* TODO How to handle that pf_cmdev_exit() is used before pf_cmdev_init()? */
+  // copy default/stored check peers data
+  net->temp_check_peers_data = p_cfg->temp_check_peers_data;
+  net->adjust_peer_to_peer_boundary = p_cfg->adjust_peer_to_peer_boundary;
+  net->last_valid_lldp_message_time = 0;
 
   pf_cmsu_init(net);
   pf_cmwrr_init(net);
@@ -67,7 +71,7 @@ pnet_t* pnet_init(
   net->eth_handle = os_eth_init(netif, pf_eth_recv, (void*)net);
   if (net->eth_handle == NULL)
   {
-    free(net);
+    os_free(net);
     return NULL;
   }
 
@@ -84,8 +88,6 @@ pnet_t* pnet_init(
 
   pf_cmrpc_init(net);
 
-  // copy default/stored check peers data
-  net->check_peers_data = p_cfg->check_peers_data;
   return net;
 }
 
@@ -459,7 +461,10 @@ int pnet_diag_add(
   if (pf_ar_find_by_arep(net, arep, &p_ar) == 0)
   {
     ret = pf_diag_add(net, p_ar, api, slot, subslot, ch, ch_properties, ch_error_type, ext_ch_error_type, ext_ch_add_value,
-                      qual_ch_qualifier, usi, p_manuf_data);
+                      qual_ch_qualifier, 
+                      usi, 
+                      p_manuf_data, 
+                      true); // send alarm
   }
 
   return ret;
@@ -505,7 +510,7 @@ int pnet_diag_remove(
 
   if (pf_ar_find_by_arep(net, arep, &p_ar) == 0)
   {
-    ret = pf_diag_remove(net, p_ar, api, slot, subslot, ch, ch_properties, ch_error_type, usi);
+    ret = pf_diag_remove(net, p_ar, api, slot, subslot, ch, ch_properties, ch_error_type, usi, true);
   }
 
   return ret;

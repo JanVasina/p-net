@@ -286,7 +286,7 @@ int pf_fspm_cm_write_ind(
       pf_get_im_1(&get_info, &pos, &net->fspm_cfg.im_1_data);
       if ((get_info.result == PF_PARSE_OK) && (pos == write_length))
       {
-        ret = os_save_im_data(net, false);
+        ret = os_save_im_data(net);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -309,7 +309,7 @@ int pf_fspm_cm_write_ind(
       {
         memcpy(&net->fspm_cfg.im_2_data, p_write_data, sizeof(net->fspm_cfg.im_2_data) - 1);
         net->fspm_cfg.im_2_data.im_date[sizeof(net->fspm_cfg.im_2_data) - 1] = '\0';
-        ret = os_save_im_data(net, false);
+        ret = os_save_im_data(net);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -332,7 +332,7 @@ int pf_fspm_cm_write_ind(
       {
         memcpy(&net->fspm_cfg.im_3_data, p_write_data, sizeof(net->fspm_cfg.im_3_data) - 1);
         net->fspm_cfg.im_3_data.im_descriptor[sizeof(net->fspm_cfg.im_3_data) - 1] = '\0';
-        ret = os_save_im_data(net, false);
+        ret = os_save_im_data(net);
         if (ret != 0)
         {
           p_write_status->pnio_status.error_code = PNET_ERROR_CODE_WRITE;
@@ -380,7 +380,7 @@ int pf_fspm_cm_write_ind(
   return ret;
 }
 
-int pf_fspm_clear_im_data(
+void pf_fspm_clear_im_data(
   pnet_t                  *net)
 {
   memset(net->fspm_cfg.im_1_data.im_tag_function, ' ', sizeof(net->fspm_cfg.im_1_data.im_tag_function));
@@ -392,8 +392,6 @@ int pf_fspm_clear_im_data(
   memset(net->fspm_cfg.im_3_data.im_descriptor, ' ', sizeof(net->fspm_cfg.im_3_data.im_descriptor));
   net->fspm_cfg.im_3_data.im_descriptor[sizeof(net->fspm_cfg.im_3_data.im_descriptor) - 1] = '\0';
   memset(net->fspm_cfg.im_4_data.im_signature, 0, sizeof(net->fspm_cfg.im_4_data.im_signature));
-
-  return 0;
 }
 
 void pf_fspm_get_cfg(

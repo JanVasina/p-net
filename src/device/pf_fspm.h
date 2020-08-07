@@ -306,10 +306,8 @@ void pf_fspm_get_default_cfg(
 /**
  * Clear the I&M data records 1-4.
  * @param net              InOut: The p-net stack instance
- * @return  0  if operation succeeded.
- *          -1 if an error occurred.
  */
-int pf_fspm_clear_im_data(
+void pf_fspm_clear_im_data(
    pnet_t                  *net);
 
 #ifdef __cplusplus

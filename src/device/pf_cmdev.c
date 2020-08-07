@@ -635,12 +635,12 @@ int pf_cmdev_plug_submodule(
   uint16_t                length_output,
   bool                    update)
 {
-  int                     ret = -1;
-  pf_api_t *p_api = NULL;
-  pf_slot_t *p_slot = NULL;
-  pf_subslot_t *p_subslot = NULL;
+  int                 ret = -1;
+  pf_api_t           *p_api = NULL;
+  pf_slot_t          *p_slot = NULL;
+  pf_subslot_t       *p_subslot = NULL;
   pf_exp_submodule_t *p_exp_sub = NULL;
-  bool                    already_plugged = false;
+  bool                already_plugged = false;
 
   if (pf_cmdev_get_api(net, api_id, &p_api) != 0)
   {
@@ -1097,13 +1097,13 @@ static int pf_cmdev_set_state(
   pf_cmdev_state_values_t state)
 {
   p_ar->cmdev_state = state;
-  LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s\n", __LINE__, pf_cmdev_state_to_string(state));
+   LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(state), p_ar->arep);
 
   switch (state)
   {
   case PF_CMDEV_STATE_ABORT:
     pf_cmdev_state_ind(net, p_ar, PNET_EVENT_ABORT);
-    LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s\n", __LINE__, pf_cmdev_state_to_string(PF_CMDEV_STATE_W_CIND));
+      LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(PF_CMDEV_STATE_W_CIND), p_ar->arep);
 
     pf_device_clear(net, p_ar);
     break;
@@ -2135,27 +2135,24 @@ static int pf_cmdev_check_iocr_apis(
       {
         /* %%%%%%%%%%%%%%%%%% io_data %%%%%%%%%%%%%%%%%%%%% */
 
-        if (ret == 0)
+        /* Within each io_data in each API the slot/subslot combo must be unique. */
+        for (io_ix = 0; io_ix < p_iocr_api->nbr_io_data; io_ix++)
         {
-          /* Within each io_data in each API the slot/subslot combo must be unique. */
-          for (io_ix = 0; io_ix < p_iocr_api->nbr_io_data; io_ix++)
+          slot_nbr = p_iocr_api->io_data[io_ix].slot_number;
+          subslot_nbr = p_iocr_api->io_data[io_ix].subslot_number;
+          combo_cnt = 0;
+          for (io2_ix = 0; io2_ix < p_iocr_api->nbr_io_data; io2_ix++)
           {
-            slot_nbr = p_iocr_api->io_data[io_ix].slot_number;
-            subslot_nbr = p_iocr_api->io_data[io_ix].subslot_number;
-            combo_cnt = 0;
-            for (io2_ix = 0; io2_ix < p_iocr_api->nbr_io_data; io2_ix++)
+            if ((p_iocr_api->io_data[io2_ix].slot_number == slot_nbr) &&
+                (p_iocr_api->io_data[io2_ix].subslot_number == subslot_nbr))
             {
-              if ((p_iocr_api->io_data[io2_ix].slot_number == slot_nbr) &&
-                  (p_iocr_api->io_data[io2_ix].subslot_number == subslot_nbr))
-              {
-                combo_cnt++;
-              }
+              combo_cnt++;
             }
-            if (combo_cnt != 1)
-            {
-              pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CONN_FAULTY_IOCR_BLOCK_REQ, 23);
-              ret = -1;
-            }
+          }
+          if (combo_cnt != 1)
+          {
+            pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CONN_FAULTY_IOCR_BLOCK_REQ, 23);
+            ret = -1;
           }
         }
 
@@ -3525,7 +3522,7 @@ int pf_cmdev_rm_connect_ind(
   {
     /* Start building the response to the connect request. */
     memcpy(p_ar->ar_result.cm_responder_mac_add.addr, mac_address.addr, sizeof(pnet_ethaddr_t));
-    p_ar->ar_result.responder_udp_rt_port = 0x8892;
+      p_ar->ar_result.responder_udp_rt_port = PF_UDP_UNICAST_PORT;
 
     pf_cmdev_fix_frame_id(p_ar);
 
@@ -3565,6 +3562,28 @@ int pf_cmdev_rm_connect_ind(
     pf_cmdev_set_state(net, p_ar, PF_CMDEV_STATE_W_CRES);
 
     ret = pf_cmdev_cm_connect_rsp_pos(net, p_ar, p_connect_result);
+    
+    // valid connection -> make a copy of check peers data
+    net->iocr_check_peers_data     = net->lldp_check_peers_data;
+    net->alarm_check_peers_data    = net->lldp_check_peers_data;
+
+    net->remote_peers_check_locked = false;
+
+    // clear the adjust peer to peer value
+    // first check the previous value
+    const uint32_t prev_adjust = net->adjust_peer_to_peer_boundary;
+    net->adjust_peer_to_peer_boundary = 0;
+    if (prev_adjust != 0)
+    {
+      // must save the value for power off-on persistence
+      os_save_im_data(net);
+    }
+
+    LOG_DEBUG(PF_ETH_LOG,
+              "CMDEV(%d): valid connection, chassis: %s port: %s\n",
+              __LINE__,
+              net->iocr_check_peers_data.peer_chassis_id,
+              net->iocr_check_peers_data.peer_port_id);
   }
   else
   {

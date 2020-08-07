@@ -118,33 +118,27 @@ int pf_cmwrr_cmdev_state_ind(
   return -1;
 }
 
-// check the validity of check peers data
-// the checks are just guess for now
-bool pf_check_peers_is_valid(pf_check_peers_t *p_check_peers)
+// check the equality of lldp and parameter check peers data
+uint16_t pf_check_peers_data_is_same(const pf_check_peers_t *a, const pf_check_peers_t *b)
 {
-  // port-001, port-002, port-003 allowed
-  if (p_check_peers->length_peer_port_id != 8)
+  if (a->length_peer_port_id != b->length_peer_port_id)
   {
-    return false;
+    return 0x8001U;
   }
-  if (strncmp(p_check_peers->peer_port_id, "port-", 5) != 0)
+  if (strncmp(a->peer_port_id, b->peer_port_id, a->length_peer_port_id) != 0)
   {
-    return false;
+    return 0x8001U;
   }
-  if (strtol(&p_check_peers->peer_port_id[5], NULL, 0) > 3)
+
+  if (a->length_peer_chassis_id != b->length_peer_chassis_id)
   {
-    return false;
+    return 0x8000U;
   }
-  if (p_check_peers->length_peer_chassis_id != 1)
+  if (strncmp(a->peer_chassis_id, b->peer_chassis_id, a->length_peer_chassis_id) != 0)
   {
-    return false;
+    return 0x8000U;
   }
-  if (   (p_check_peers->peer_chassis_id[0] != 'a')
-      && (p_check_peers->peer_chassis_id[0] != 'b'))
-  {
-    return false;
-  }
-  return true;
+  return 0U;
 }
 
 // read PDPortCheckData from controller and store to net structure
@@ -177,23 +171,25 @@ static int pf_write_pd_port_data_check(
 
   if (hdr_host.block_type == PF_BT_CHECK_PEERS && slot == 0 && subslot == 0x8001)
   {
-    pf_check_peers_t *p_dst_peers = &(net->check_peers_data);
+    pf_check_peers_t *p_dst_peers = &(net->temp_check_peers_data);
     p_dst_peers->number_of_peers = pf_get_byte(&get_info, &req_pos);
-    const uint8_t length_peer_port_id = pf_get_byte(&get_info, &req_pos) & 0xF; // max 15 chars
+
+    const uint8_t length_peer_port_id = pf_get_byte(&get_info, &req_pos) & MAX_PORT_NAME_MASK; 
     p_dst_peers->length_peer_port_id = length_peer_port_id;
     pf_get_mem(&get_info, &req_pos, length_peer_port_id, p_dst_peers->peer_port_id);
     p_dst_peers->peer_port_id[length_peer_port_id] = '\0';
 
-    const uint8_t length_peer_chassis_id = pf_get_byte(&get_info, &req_pos) & 0xF; // max 15 chars
+    const uint8_t length_peer_chassis_id = pf_get_byte(&get_info, &req_pos) & MAX_PORT_NAME_MASK;
     p_dst_peers->length_peer_chassis_id = length_peer_chassis_id;
     pf_get_mem(&get_info, &req_pos, length_peer_chassis_id, p_dst_peers->peer_chassis_id);
     p_dst_peers->peer_chassis_id[length_peer_chassis_id] = '\0';
 
-    // save always
+    // save always, even wrong data
+    os_save_im_data(net);
 
-    if(pf_check_peers_is_valid(p_dst_peers))
+    if(pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->temp_check_peers_data)) == 0)
     {
-      os_save_im_data(net, false);
+      ; // do nothing here
     }
     else if (p_ar != NULL)
     {
@@ -207,12 +203,54 @@ static int pf_write_pd_port_data_check(
                   p_dst_peers->length_peer_chassis_id,
                   p_dst_peers->peer_chassis_id);
 
-      os_save_im_data(net, true);
     }
 
     return 0;
   }
 
+  return -1;
+}
+
+static int pf_write_pd_port_data_adjust(
+  pnet_t                 *net,
+  pf_ar_t                *p_ar,
+  uint16_t                data_length,
+  uint8_t                *p_req_buf)
+{
+  uint16_t      req_pos = 0;
+  pf_get_info_t get_info;
+  get_info.result        = PF_PARSE_OK;
+  get_info.p_buf         = p_req_buf;
+  get_info.is_big_endian = true;
+  get_info.len           = data_length;      /* Bytes in input buffer */
+                                   
+  // from wireshark:
+  // padding 2 bytes, slot 2 bytes, subslot 2 bytes
+  (void)pf_get_uint16(&get_info, &req_pos);
+  const uint16_t slot = pf_get_uint16(&get_info, &req_pos);
+  const uint16_t subslot = pf_get_uint16(&get_info, &req_pos);
+  pf_block_header_t hdr_host;
+  pf_get_block_header(&get_info, &req_pos, &hdr_host);
+
+  if (hdr_host.block_type == PF_BT_ADJUST_PEER_TO_PEER && slot == 0 && subslot == 0x8001)
+  {
+    // padding two bytes
+    (void)pf_get_uint16(&get_info, &req_pos);
+    // get the flags
+    // handling of the variable is in the LLDP
+    const uint32_t prev_adjust = net->adjust_peer_to_peer_boundary;
+    net->adjust_peer_to_peer_boundary = pf_get_uint32(&get_info, &req_pos);
+    LOG_WARNING(PNET_LOG, "CMWRR(%d): adjust peer2peer: 0x%X\n",
+             __LINE__,
+             net->adjust_peer_to_peer_boundary);
+
+    // must save the value for power off-on persistence
+    if(prev_adjust != net->adjust_peer_to_peer_boundary)
+    {
+      os_save_im_data(net);
+    }
+    return 0;
+  }
   return -1;
 }
 
@@ -291,7 +329,16 @@ static int pf_cmwrr_write(
       }
       break;
     case PF_IDX_SUB_PDPORT_DATA_ADJ:
-      /* ToDo: Handle the request. */
+      ret = pf_write_pd_port_data_adjust(net,
+                                         p_ar,
+                                         data_length,
+                                         &p_req_buf[*p_req_pos]);
+      if (ret != 0)
+      {
+        p_result->pnio_status.error_code = PNET_ERROR_CODE_PNIO;
+        p_result->pnio_status.error_decode = PNET_ERROR_DECODE_PNIORW;
+        p_result->pnio_status.error_code_1 = PNET_ERROR_CODE_1_ACC_STATE_CONFLICT;
+      }
       break;
     default:
       break;

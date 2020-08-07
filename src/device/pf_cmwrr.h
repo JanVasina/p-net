@@ -76,7 +76,12 @@ int pf_cmwrr_rm_write_ind(
    uint16_t                *p_req_pos);
 
 // check the validity of the check peers data
-bool pf_check_peers_is_valid(pf_check_peers_t *p_check_peers);
+// returns error code:
+// 0:      no error
+// 0x8000: peer name station mismatch
+// 0x8001: peer name of port mismatch
+// 0xFFFF: number of peers mismatch (not yet implemented)
+uint16_t pf_check_peers_data_is_same(const pf_check_peers_t *a, const pf_check_peers_t *b);
 
 #ifdef __cplusplus
 }

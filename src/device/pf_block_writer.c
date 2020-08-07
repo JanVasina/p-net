@@ -1123,10 +1123,10 @@ void pf_put_record_data_read(
   bool                    is_big_endian,
   pf_block_type_values_t  block_type,
   uint16_t                raw_length,
-  uint8_t *p_raw_data,
+  uint8_t                *p_raw_data,
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t                block_pos = *p_pos;
   uint16_t                block_len = 0;
@@ -1764,32 +1764,6 @@ void pf_put_im_3(
   pf_put_uint16(is_big_endian, block_len, res_len, p_bytes, &block_pos);
 }
 
-void pf_put_record_data_write(
-  bool                    is_big_endian,
-  pf_block_type_values_t  block_type,
-  uint16_t                raw_length,
-  uint8_t *p_raw_data,
-  uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
-{
-  uint16_t block_pos = *p_pos;
-  uint16_t block_len = 0;
-
-  /* Insert block header for the read operation */
-  pf_put_block_header(is_big_endian,
-                      block_type, 0,                      /* Dont know block_len yet */
-                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
-                      res_len, p_bytes, p_pos);
-
-  pf_put_mem(p_raw_data, raw_length, res_len, p_bytes, p_pos);
-
-  /* Finally insert the block length into the block header */
-  block_len = *p_pos - (block_pos + 4);
-  block_pos += offsetof(pf_block_header_t, block_length);   /* Point to correct place */
-  pf_put_uint16(is_big_endian, block_len, res_len, p_bytes, &block_pos);
-}
-
 void pf_put_write_result(
   bool                    is_big_endian,
   pf_iod_write_result_t  *p_res,
@@ -1936,7 +1910,7 @@ static void pf_put_diag_item(
     pf_put_uint16(is_big_endian, p_item->fmt.std.ch_error_type, res_len, p_bytes, p_pos);
 
     pf_put_uint16(is_big_endian, p_item->fmt.std.ext_ch_error_type, res_len, p_bytes, p_pos);
-    pf_put_uint16(is_big_endian, p_item->fmt.std.ext_ch_add_value, res_len, p_bytes, p_pos);
+    pf_put_uint32(is_big_endian, p_item->fmt.std.ext_ch_add_value, res_len, p_bytes, p_pos); // must be 32 bits according to Table 7 TCIS_00000012_Alarm_V2.35.2.00008.pdf
     break;
   case PF_USI_QUALIFIED_CHANNEL_DIAGNOSIS:
     /* Insert std format diagnosis */
@@ -1945,8 +1919,8 @@ static void pf_put_diag_item(
     pf_put_uint16(is_big_endian, p_item->fmt.std.ch_error_type, res_len, p_bytes, p_pos);
 
     pf_put_uint16(is_big_endian, p_item->fmt.std.ext_ch_error_type, res_len, p_bytes, p_pos);
-    pf_put_uint16(is_big_endian, p_item->fmt.std.ext_ch_add_value, res_len, p_bytes, p_pos);
-    pf_put_uint16(is_big_endian, p_item->fmt.std.qual_ch_qualifier, res_len, p_bytes, p_pos);
+    pf_put_uint32(is_big_endian, p_item->fmt.std.ext_ch_add_value, res_len, p_bytes, p_pos);  // must be 32 bits according to Table 8 TCIS_00000012_Alarm_V2.35.2.00008.pdf
+    pf_put_uint32(is_big_endian, p_item->fmt.std.qual_ch_qualifier, res_len, p_bytes, p_pos); // must be 32 bits according to Table 8 TCIS_00000012_Alarm_V2.35.2.00008.pdf
     break;
   default:
     pf_put_mem(p_item->fmt.usi.manuf_data, sizeof(p_item->fmt.usi.manuf_data), res_len, p_bytes, p_pos);
@@ -2299,14 +2273,14 @@ void pf_put_alarm_fixed(
 void pf_put_alarm_block(
   bool                    is_big_endian,
   pf_block_type_values_t  bh_type,
-  pf_alarm_data_t *p_alarm_data,
+  pf_alarm_data_t        *p_alarm_data,
   uint32_t                maint_status,
   uint16_t                payload_usi,   /* pf_usi_values_t */
   uint16_t                payload_len,
-  uint8_t *p_payload,    /* Union of may types - see below */
+  uint8_t                *p_payload,    /* Union of many types - see below */
   uint16_t                res_len,
-  uint8_t *p_bytes,
-  uint16_t *p_pos)
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
 {
   uint16_t block_pos = *p_pos;
   uint16_t block_len = 0;
@@ -2320,6 +2294,7 @@ void pf_put_alarm_block(
                       PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
                       res_len, p_bytes, p_pos);
 
+  CC_ASSERT(p_alarm_data != NULL);
   pf_put_uint16(is_big_endian, p_alarm_data->alarm_type, res_len, p_bytes, p_pos);
   pf_put_uint32(is_big_endian, p_alarm_data->api_id, res_len, p_bytes, p_pos);
   pf_put_uint16(is_big_endian, p_alarm_data->slot_nbr, res_len, p_bytes, p_pos);
@@ -2378,6 +2353,52 @@ void pf_put_alarm_block(
     pf_put_mem(p_payload, payload_len, res_len, p_bytes, p_pos);
     break;
   }
+
+  /* Finally insert the block length into the block header */
+  block_len = *p_pos - (block_pos + 4);
+  block_pos += offsetof(pf_block_header_t, block_length);   /* Point to correct place */
+  pf_put_uint16(is_big_endian, block_len, res_len, p_bytes, &block_pos);
+}
+
+void pf_put_ack_alarm_block(
+  bool                    is_big_endian,
+  pf_block_type_values_t  bh_type,
+  pf_alarm_data_t        *p_alarm_data,
+  pnet_pnio_status_t     *p_status,
+  uint16_t                res_len,
+  uint8_t                *p_bytes,
+  uint16_t               *p_pos)
+{
+  uint16_t block_pos = *p_pos;
+  uint16_t block_len = 0;
+  uint32_t temp_u16;
+  uint32_t temp_u32;
+
+  /* Insert block header for the alarm block */
+  pf_put_block_header(is_big_endian, bh_type,
+                      0,                      /* Dont know block_len yet */
+                      PNET_BLOCK_VERSION_HIGH, PNET_BLOCK_VERSION_LOW,
+                      res_len, p_bytes, p_pos);
+
+  CC_ASSERT(p_alarm_data != NULL);
+  pf_put_uint16(is_big_endian, p_alarm_data->alarm_type, res_len, p_bytes, p_pos);
+  pf_put_uint32(is_big_endian, p_alarm_data->api_id, res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, p_alarm_data->slot_nbr, res_len, p_bytes, p_pos);
+  pf_put_uint16(is_big_endian, p_alarm_data->subslot_nbr, res_len, p_bytes, p_pos);
+
+  temp_u32 = 0;
+  pf_put_bits(p_alarm_data->sequence_number, 11, 0, &temp_u32);
+  pf_put_bits(p_alarm_data->alarm_specifier.channel_diagnosis, 1, 11, &temp_u32);
+  pf_put_bits(p_alarm_data->alarm_specifier.manufacturer_diagnosis, 1, 12, &temp_u32);
+  pf_put_bits(p_alarm_data->alarm_specifier.submodule_diagnosis, 1, 13, &temp_u32);
+  pf_put_bits(p_alarm_data->alarm_specifier.ar_diagnosis, 1, 15, &temp_u32);
+  temp_u16 = (uint16_t)temp_u32;
+  pf_put_uint16(is_big_endian, temp_u16, res_len, p_bytes, p_pos);
+
+  pf_put_byte(p_status->error_code, res_len, p_bytes, p_pos);
+  pf_put_byte(p_status->error_decode, res_len, p_bytes, p_pos);
+  pf_put_byte(p_status->error_code_1, res_len, p_bytes, p_pos);
+  pf_put_byte(p_status->error_code_2, res_len, p_bytes, p_pos);
 
   /* Finally insert the block length into the block header */
   block_len = *p_pos - (block_pos + 4);

@@ -232,7 +232,7 @@ int pf_cmsu_alarm_error_ind(
   p_ar->err_cls = err_cls;
   p_ar->err_code = err_code;
 
-  LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
+  LOG_INFO(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_ar->err_code);
 
   return pf_cmdev_state_ind(net, p_ar, PNET_EVENT_ABORT);
 }

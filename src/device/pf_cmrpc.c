@@ -376,7 +376,7 @@ static void pf_session_release(
       {
         os_udp_close(p_sess->socket);
       }
-      LOG_INFO(PF_RPC_LOG, "RPC(%d): Released session %u\n", __LINE__, (unsigned)p_sess->ix);
+      LOG_DEBUG(PF_RPC_LOG, "RPC(%d): Released session %u\n", __LINE__, (unsigned)p_sess->ix);
       memset(p_sess, 0, sizeof(*p_sess));
       p_sess->in_use = false;
     }
@@ -657,17 +657,17 @@ static int pf_check_block_header(
 
   if (p_block_header->block_length != block_length)
   {
-    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, 1);
+    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, PNET_ERROR_CODE_2_INVALID_BLOCK_LEN);
     ret = -1;
   }
   else if (p_block_header->block_version_high != PNET_BLOCK_VERSION_HIGH)
   {
-    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, 2);
+    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, PNET_ERROR_CODE_2_INVALID_BLOCK_VERSION_HIGH);
     ret = -1;
   }
   else if (p_block_header->block_version_low != PNET_BLOCK_VERSION_LOW)
   {
-    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, 3);
+    pf_set_error(p_stat, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, err_code_1, PNET_ERROR_CODE_2_INVALID_BLOCK_VERSION_LOW);
     ret = -1;
   }
 
@@ -1065,12 +1065,12 @@ static void pf_cmrpc_send_rpc_alarm(
   void     *arg,
   uint32_t current_time)
 {
-  pnet_pnio_status_t alarm_data;
-  alarm_data.error_code = PNET_ERROR_CODE_RTA_ERROR;
-  alarm_data.error_decode = PNET_ERROR_DECODE_PNIO;
-  alarm_data.error_code_1 = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
-  alarm_data.error_code_2 = PNET_ERROR_CODE_2_ABORT_AR_RE_RUN_ABORTS_EXISTING;
-  pf_alarm_send(net, &alarm_data);
+  pnet_pnio_status_t pnio_status;
+  pnio_status.error_code = PNET_ERROR_CODE_RTA_ERROR;
+  pnio_status.error_decode = PNET_ERROR_DECODE_PNIO;
+  pnio_status.error_code_1 = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
+  pnio_status.error_code_2 = PNET_ERROR_CODE_2_ABORT_AR_RE_RUN_ABORTS_EXISTING;
+  pf_alarm_send(net, &pnio_status);
   (void)current_time;
   (void)arg;
   LOG_INFO(PF_RPC_LOG, "CMRPC(%d): send ABORT existing ALARM\n", __LINE__);
@@ -1394,7 +1394,7 @@ static int pf_cmrpc_rm_release_ind(
     else
     {
       pf_set_error(&rpc_result, PNET_ERROR_CODE_RELEASE, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_AR_UUID_UNKNOWN);
-         p_sess->kill_session = true;
+      p_sess->kill_session = true;
     }
   }
 
@@ -1421,7 +1421,7 @@ static int pf_cmrpc_rm_dcontrol_interpret_req(
   int                     ret = 0;
   uint16_t                start_pos;
   pf_block_header_t       block_header;
-   CC_ASSERT(p_sess != NULL);
+  CC_ASSERT(p_sess != NULL);
 
   start_pos = req_pos;
   while (((req_pos + sizeof(block_header)) <= p_sess->get_info.len) &&
@@ -1908,13 +1908,13 @@ static int pf_cmrpc_rm_read_ind(
         (opnum != PF_RPC_DEV_OPNUM_READ_IMPLICIT))
     {
       pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_READ, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CONN_FAULTY_FAULTY_RECORD, PNET_ERROR_CODE_2_CMRPC_AR_UUID_UNKNOWN);
-         p_sess->kill_session = true;
+      p_sess->kill_session = true;
     }
     else if ((pf_ar_find_by_uuid(net, &read_request.ar_uuid, &p_ar) == 0) &&
              (opnum != PF_RPC_DEV_OPNUM_READ))
     {
       pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_READ, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_AR_UUID_UNKNOWN);
-         p_sess->kill_session = true;
+      p_sess->kill_session = true;
     }
     else if ((read_request.api != 0) &&
              (pf_cmdev_get_api(net, read_request.api, &p_api) != 0))
@@ -2036,7 +2036,7 @@ static int pf_cmrpc_rm_write_interpret_ind(
  */
 static int pf_cmrpc_perform_one_write(
   pnet_t                 *net,
-   pf_session_info_t       *p_sess,
+  pf_session_info_t       *p_sess,
   pf_iod_write_request_t *p_write_request,
   pf_iod_write_result_t  *p_write_result,
   pnet_result_t          *p_stat,
@@ -2050,20 +2050,20 @@ static int pf_cmrpc_perform_one_write(
   if (pf_ar_find_by_uuid(net, &p_write_request->ar_uuid, &p_ar) != 0)
   {
     pf_set_error(p_stat, PNET_ERROR_CODE_WRITE, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_AR_UUID_UNKNOWN);
-      p_sess->kill_session = true;
+    p_sess->kill_session = true;
   }
   else if ((p_write_request->api != 0) &&
            (pf_cmdev_get_api(net, p_write_request->api, &p_api) != 0))
   {
     pf_set_error(p_stat, PNET_ERROR_CODE_WRITE, PNET_ERROR_DECODE_PNIORW, PNET_ERROR_CODE_1_ACC_INVALID_AREA_API, 1);
   }
-   else if ((*p_req_pos + p_write_request->record_data_length) <= p_sess->get_info.len)
+  else if ((*p_req_pos + p_write_request->record_data_length) <= p_sess->get_info.len)
   {
     if (p_write_request->index < 0x8000)
     {
       /* This is a write of a GSDML param. No block header in this case. */
       if (pf_cmwrr_rm_write_ind(net, p_ar, p_write_request, p_write_result, p_stat,
-            p_sess->get_info.p_buf, p_write_request->record_data_length, p_req_pos) == 0)
+                                p_sess->get_info.p_buf, p_write_request->record_data_length, p_req_pos) == 0)
       {
         ret = 0;
       }
@@ -2081,9 +2081,9 @@ static int pf_cmrpc_perform_one_write(
        *
        * Skip the block header - it is not needed in the stack.
        */
-         pf_get_block_header(&p_sess->get_info, p_req_pos, &block_header);  /* Not needed by code!! */
+      pf_get_block_header(&p_sess->get_info, p_req_pos, &block_header);  /* Not needed by code!! */
       if (pf_cmwrr_rm_write_ind(net, p_ar, p_write_request, p_write_result, p_stat,
-            p_sess->get_info.p_buf, p_write_request->record_data_length - sizeof(pf_block_header_t), p_req_pos) == 0)
+                                p_sess->get_info.p_buf, p_write_request->record_data_length - sizeof(pf_block_header_t), p_req_pos) == 0)
       {
         ret = 0;
       }
@@ -2203,7 +2203,7 @@ static int pf_cmrpc_rm_write_ind(
                (pf_cmrpc_rm_write_interpret_ind(&p_sess->get_info,
                                                 &write_request_multi, &req_pos, &write_stat_multi) == 0))
         {
-               ret = pf_cmrpc_perform_one_write(net, p_sess, &write_request_multi,
+          ret = pf_cmrpc_perform_one_write(net, p_sess, &write_request_multi,
                                            &write_result_multi, &write_stat_multi, &req_pos);
           pf_put_write_result(p_sess->get_info.is_big_endian, &write_result_multi, res_size, p_res, p_res_pos);
 
@@ -2222,7 +2222,7 @@ static int pf_cmrpc_rm_write_ind(
       }
       else     /* single write */
       {
-            ret = pf_cmrpc_perform_one_write(net, p_sess, &write_request,
+        ret = pf_cmrpc_perform_one_write(net, p_sess, &write_request,
                                          &write_result, &p_sess->rpc_result, &req_pos);
         pf_put_write_result(p_sess->get_info.is_big_endian, &write_result, res_size, p_res, p_res_pos);
       }
@@ -2266,11 +2266,11 @@ static int pf_cmrpc_rm_write_ind(
   return ret;
 }
 
-// restore check peers data to default (port-001, chassis 'a')
+// restore temporary check peers data to LLDP
 // needed for Diagnosis test case of Automated RT Tester
 static void pf_cmrpc_restore_check_peers_from_default(pnet_t *net)
 {
-  net->check_peers_data = net->p_fspm_default_cfg->default_check_peers_data;
+  net->temp_check_peers_data = net->lldp_check_peers_data;
 }
 
 /**
@@ -2365,10 +2365,10 @@ int pf_cmrpc_rm_ccontrol_req(
   pf_control_block_t      control_io;
   uint16_t                start_pos = 0;
   uint16_t                control_pos = 0;
-   uint16_t                rpc_hdr_start_pos = 0;
+  uint16_t                rpc_hdr_start_pos = 0;
   uint16_t                length_of_body_pos = 0;
   pf_session_info_t *p_sess = NULL;
-   uint16_t                max_req_len = PF_MAX_UDP_PAYLOAD_SIZE;  /* Reduce to 130 to test fragmented sending */
+  uint16_t                max_req_len = PF_MAX_UDP_PAYLOAD_SIZE;  /* Reduce to 130 to test fragmented sending */
 
   memset(&rpc_req, 0, sizeof(rpc_req));
   memset(&ndr_data, 0, sizeof(ndr_data));
@@ -2382,8 +2382,8 @@ int pf_cmrpc_rm_ccontrol_req(
   {
     p_sess->p_ar = p_ar;
     p_sess->ip_addr = p_ar->p_sess->ip_addr;
-      p_sess->port = PF_RPC_SERVER_PORT;  /* Destination port on IO-controller */
-      p_sess->from_me = true;
+    p_sess->port = PF_RPC_SERVER_PORT;  /* Destination port on IO-controller */
+    p_sess->from_me = true;
 
     //    memset(&rpc_req, 0, sizeof(rpc_req));
     //    memset(&ndr_data, 0, sizeof(ndr_data));
@@ -2393,7 +2393,7 @@ int pf_cmrpc_rm_ccontrol_req(
     rpc_req.version = 4;
     rpc_req.packet_type = PF_RPC_PT_REQUEST;
     rpc_req.flags.idempotent = true;
-      rpc_req.is_big_endian = true;
+    rpc_req.is_big_endian = true;
     rpc_req.float_repr = 0;  /* IEEE */
     rpc_req.serial_high = 0;
 
@@ -2435,7 +2435,7 @@ int pf_cmrpc_rm_ccontrol_req(
 
     length_of_body_pos = 0;
 
-      rpc_hdr_start_pos = p_sess->out_buf_len;
+    rpc_hdr_start_pos = p_sess->out_buf_len;
     pf_put_dce_rpc_header(&rpc_req, sizeof(p_sess->out_buffer), p_sess->out_buffer, &p_sess->out_buf_len, &length_of_body_pos);
 
     start_pos = p_sess->out_buf_len;
@@ -2446,7 +2446,7 @@ int pf_cmrpc_rm_ccontrol_req(
     pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.offset, sizeof(p_sess->out_buffer), p_sess->out_buffer, &p_sess->out_buf_len);
     pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.actual_count, sizeof(p_sess->out_buffer), p_sess->out_buffer, &p_sess->out_buf_len);
 
-      ndr_data.args_maximum = max_req_len - p_sess->out_buf_len;
+    ndr_data.args_maximum = max_req_len - p_sess->out_buf_len;
     /* Always little-endian on the wire */
     control_pos = p_sess->out_buf_len;
     pf_put_control(true, PF_BT_APPRDY_REQ, &control_io, sizeof(p_sess->out_buffer), p_sess->out_buffer, &p_sess->out_buf_len);
@@ -2454,55 +2454,55 @@ int pf_cmrpc_rm_ccontrol_req(
     pf_put_ar_diff(rpc_req.is_big_endian, p_ar, sizeof(p_sess->out_buffer), p_sess->out_buffer, &p_sess->out_buf_len);
 
 
-      /* Save the _real_ value for args_length */
+    /* Save the _real_ value for args_length */
     ndr_data.args_length = p_sess->out_buf_len - control_pos;
 
-      /*
-       * The complete request is stored in sess->out_buffer. It may be too large for one UDP frame
-       * so we may need to sent it as fragments.
-       * In that case the first fragment is sent from here and the rest is handled by the PT_FRAG_ACK
-       * handler in pf_cmrpc_dce_packet.
-       */
-      if (p_sess->out_buf_len < max_req_len)
-      {
-         /* NOT a fragmented request - all fits into send buffer */
-         p_sess->out_buf_sent_len = p_sess->out_buf_len;
-      }
-      else
-      {
-         LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): Send fragmented CControl request, out_buf_len %u max is %u.\n", __LINE__, p_sess->out_buf_len, max_req_len);
-         /* We need to send a fragmented answer - Send the first fragment now */
-         p_sess->out_buf_sent_len = max_req_len;   /* This is what is sent in the first fragment */
-         /* Also set the fragment bit in the RPC response header */
-         rpc_req.flags.fragment = true;
-         rpc_req.flags.no_fack = false;
+    /*
+     * The complete request is stored in sess->out_buffer. It may be too large for one UDP frame
+     * so we may need to sent it as fragments.
+     * In that case the first fragment is sent from here and the rest is handled by the PT_FRAG_ACK
+     * handler in pf_cmrpc_dce_packet.
+     */
+    if (p_sess->out_buf_len < max_req_len)
+    {
+      /* NOT a fragmented request - all fits into send buffer */
+      p_sess->out_buf_sent_len = p_sess->out_buf_len;
+    }
+    else
+    {
+      LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): Send fragmented CControl request, out_buf_len %u max is %u.\n", __LINE__, p_sess->out_buf_len, max_req_len);
+      /* We need to send a fragmented answer - Send the first fragment now */
+      p_sess->out_buf_sent_len = max_req_len;   /* This is what is sent in the first fragment */
+      /* Also set the fragment bit in the RPC response header */
+      rpc_req.flags.fragment = true;
+      rpc_req.flags.no_fack = false;
 
-         /* Re-write the RPC header with the new info */
-         pf_put_dce_rpc_header(&rpc_req, max_req_len, p_sess->out_buffer, &rpc_hdr_start_pos, &length_of_body_pos);
+      /* Re-write the RPC header with the new info */
+      pf_put_dce_rpc_header(&rpc_req, max_req_len, p_sess->out_buffer, &rpc_hdr_start_pos, &length_of_body_pos);
 
-         p_sess->out_fragment_nbr++; /* Number of the next fragment */
-      }
+      p_sess->out_fragment_nbr++; /* Number of the next fragment */
+    }
 
-      /* Finalize */
-      /* Insert the real value of length_of_body into the RPC header */
-      pf_put_uint16(rpc_req.is_big_endian, p_sess->out_buf_sent_len - start_pos, max_req_len, p_sess->out_buffer, &length_of_body_pos);
-      /* Fixup the NDR header with correct values. */
+    /* Finalize */
+    /* Insert the real value of length_of_body into the RPC header */
+    pf_put_uint16(rpc_req.is_big_endian, p_sess->out_buf_sent_len - start_pos, max_req_len, p_sess->out_buffer, &length_of_body_pos);
+    /* Fixup the NDR header with correct values. */
     ndr_data.array.actual_count = ndr_data.args_length;   /* Must be equal for requests */
     ndr_data.array.maximum_count = ndr_data.args_maximum; /* Must be equal for requests */
 
     /* Over-write the response header with correct length and actual_count. */
-      pf_put_uint32(rpc_req.is_big_endian, ndr_data.args_maximum, max_req_len, p_sess->out_buffer, &start_pos);
-      pf_put_uint32(rpc_req.is_big_endian, ndr_data.args_length, max_req_len, p_sess->out_buffer, &start_pos);
-      pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.maximum_count, max_req_len, p_sess->out_buffer, &start_pos);
-      pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.offset, max_req_len, p_sess->out_buffer, &start_pos);
-      pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.actual_count, max_req_len, p_sess->out_buffer, &start_pos);
+    pf_put_uint32(rpc_req.is_big_endian, ndr_data.args_maximum, max_req_len, p_sess->out_buffer, &start_pos);
+    pf_put_uint32(rpc_req.is_big_endian, ndr_data.args_length, max_req_len, p_sess->out_buffer, &start_pos);
+    pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.maximum_count, max_req_len, p_sess->out_buffer, &start_pos);
+    pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.offset, max_req_len, p_sess->out_buffer, &start_pos);
+    pf_put_uint32(rpc_req.is_big_endian, ndr_data.array.actual_count, max_req_len, p_sess->out_buffer, &start_pos);
 
-      p_sess->socket = os_udp_open(OS_IPADDR_ANY, PF_RPC_CCONTROL_EPHEMERAL_PORT);
+    p_sess->socket = os_udp_open(OS_IPADDR_ANY, PF_RPC_CCONTROL_EPHEMERAL_PORT);
     if (p_sess->socket > 0)
     {
-         if (os_udp_sendto(p_sess->socket, p_sess->ip_addr, p_sess->port, p_sess->out_buffer, p_sess->out_buf_sent_len) == p_sess->out_buf_sent_len)
+      if (os_udp_sendto(p_sess->socket, p_sess->ip_addr, p_sess->port, p_sess->out_buffer, p_sess->out_buf_sent_len) == p_sess->out_buf_sent_len)
       {
-            LOG_INFO(PF_RPC_LOG, "Sent ccontrol request (with APPL_READY) to controller. size = %u. socket %" PRIu32 "\n", p_sess->out_buf_sent_len, p_sess->socket);
+        LOG_INFO(PF_RPC_LOG, "Sent ccontrol request (with APPL_READY) to controller. size = %u. socket %" PRIu32 "\n", p_sess->out_buf_sent_len, p_sess->socket);
         ret = 0;
       }
       else
@@ -2512,7 +2512,7 @@ int pf_cmrpc_rm_ccontrol_req(
     }
     else
     {
-         LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): os_udp_open failed: %d\n", __LINE__, (int)p_sess->socket);
+      LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): os_udp_open failed: %d\n", __LINE__, (int)p_sess->socket);
     }
   }
 
@@ -2553,14 +2553,14 @@ static int pf_cmrpc_rm_ccontrol_interpret_cnf(
       default:
         pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_CONTROL, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_UNKNOWN_BLOCKS);
         LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): Unknown block type %u\n", __LINE__, (unsigned)block_header.block_type);
-        LOG_DEBUG(PNET_LOG, "CMRPC(%d): : Unknown block type %u\n", __LINE__, (unsigned)block_header.block_type);
+        LOG_DEBUG(PNET_LOG, "CMRPC(%d): Unknown block type %u\n", __LINE__, (unsigned)block_header.block_type);
         ret = -1;
         break;
       }
     }
     else
     {
-      LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): : Parse error\n", __LINE__);
+      LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): Parse error\n", __LINE__);
     }
   }
 
@@ -2583,7 +2583,7 @@ static int pf_cmrpc_rm_ccontrol_interpret_cnf(
       }
       else if (p_control_io->control_command != BIT(PF_CONTROL_COMMAND_BIT_DONE))
       {
-        LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): ControlCommand has more than one bit set: %04x\n", __LINE__, p_control_io->control_command);
+        LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): CControl ControlCommand has wrong bit pattern: %04x\n", __LINE__, p_control_io->control_command);
         pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_CONTROL, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_STATE_CONFLICT);
         ret = -1;
       }
@@ -2601,6 +2601,11 @@ static int pf_cmrpc_rm_ccontrol_interpret_cnf(
 /**
  * @internal
  * Handle the response from a CControl request
+ *
+ * Triggers these user callbacks:
+ * * \a pnet_state_ind() with PNET_EVENT_DATA.
+ * * \a pnet_ccontrol_cnf()
+ *
  * @param net              InOut: The p-net stack instance
  * @param p_sess           In:   The session instance.
  * @param req_pos          In:   Position in the input buffer.
@@ -2648,12 +2653,12 @@ static int pf_cmrpc_rm_ccontrol_cnf(
     }
     else
     {
-      LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): \n", __LINE__);
+      LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): CControl ControlCommand has wrong bit pattern: %04x\n", __LINE__, ccontrol_io.control_command);
     }
   }
   else
   {
-    LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): \n", __LINE__);
+    LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): Failed to parse a CControl response message.\n", __LINE__);
   }
 
   return ret;
@@ -2756,10 +2761,10 @@ static int pf_cmrpc_dce_packet(
   }
   else
   {
-      if (is_new_session)
-      {
-         p_sess->from_me = false;
-      }
+    if (is_new_session)
+    {
+      p_sess->from_me = false;
+    }
     p_sess->get_info = get_info;
     memset(&p_sess->rpc_result, 0, sizeof(p_sess->rpc_result));
 
@@ -2805,7 +2810,7 @@ static int pf_cmrpc_dce_packet(
           /*
            * Endianness differs.
            */
-          LOG_ERROR(PF_RPC_LOG, "RPC(%d): Endianness differs in incoming fragments\n", __LINE__);
+          LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): Endianness differs in incoming fragments\n", __LINE__);
           pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_STATE_CONFLICT);
         }
       }
@@ -2973,7 +2978,7 @@ static int pf_cmrpc_dce_packet(
 
             /* Prepare the response */
             rpc_res = rpc_req;
-                  rpc_res.packet_type = p_sess->from_me ? PF_RPC_PT_REQUEST : PF_RPC_PT_RESPONSE;
+            rpc_res.packet_type = p_sess->from_me ? PF_RPC_PT_REQUEST : PF_RPC_PT_RESPONSE;
             rpc_res.flags.last_fragment = false;
             rpc_res.flags.fragment = true;
             rpc_res.flags.no_fack = false;
@@ -3023,7 +3028,7 @@ static int pf_cmrpc_dce_packet(
           }
           else
           {
-            LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): No more fragments to send. Total %u, already sent %u.\n", __LINE__,
+            LOG_DEBUG(PF_RPC_LOG, "CMRPC(%d): No more fragments to send. Total %u bytes, already sent %u bytes.\n", __LINE__,
                       p_sess->out_buf_len, p_sess->out_buf_sent_len);
             /* The last fragment has been acknowledged */
             p_sess->out_fragment_nbr = 0;
@@ -3041,7 +3046,7 @@ static int pf_cmrpc_dce_packet(
         /* A response to a CCONTROL request */
         if (is_new_session)
         {
-          LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): Responses should be part of existing sessions. Unknown incoming UUID.\n", __LINE__);
+          LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): Responses should be part of existing sessions. Unknown incoming activity UUID.\n", __LINE__);
           *p_is_release = true;  /* Tell caller */
           p_sess->kill_session = true;
           res_pos = 0;  /* Send nothing in response */
@@ -3231,6 +3236,29 @@ void pf_cmrpc_periodic(
     }
   }
 
+  // capture syslog messages of Automated RT Tester for better diagnosis
+  uint32_t                syslog_addr;
+  uint16_t                syslog_port;
+  const int syslog_len = os_udp_recvfrom(net->syslog_socket, &syslog_addr, &syslog_port, net->syslog_frame, sizeof(net->syslog_frame) - 1);
+  if (syslog_len > 0)
+  {
+    if(syslog_len < (int)(sizeof(net->syslog_frame)))
+    {
+      net->syslog_frame[syslog_len] = '\0';
+    }
+    else
+    {
+      net->syslog_frame[sizeof(net->syslog_frame) - 1] = '\0';
+    }
+    if((strstr((char *)(net->syslog_frame), "error") != NULL) || (strstr((char *)(net->syslog_frame), "Error") != NULL))
+    {
+      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_YELLOW "%s" ANSI_COLOR_RESET" \n", (char *)(net->syslog_frame));
+    }
+    else
+    {
+      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET" \n", (char *)(net->syslog_frame));
+    }
+  }
 }
 
 void pf_cmrpc_init(
@@ -3242,8 +3270,9 @@ void pf_cmrpc_init(
     memset(net->cmrpc_ar, 0, sizeof(net->cmrpc_ar));
     memset(net->cmrpc_session_info, 0, sizeof(net->cmrpc_session_info));
 
-     net->cmrpc_rpcreq_socket = os_udp_open(OS_IPADDR_ANY, PF_RPC_SERVER_PORT);
-    net->pnet_socket = os_udp_open(OS_IPADDR_ANY, PF_PNET_SERVER_PORT);
+    net->cmrpc_rpcreq_socket = os_udp_open(OS_IPADDR_ANY, PF_RPC_SERVER_PORT);
+    net->pnet_socket         = os_udp_open(OS_IPADDR_ANY, PF_PNET_SERVER_PORT);
+    net->syslog_socket       = os_udp_open(OS_IPADDR_ANY, PF_SYSLOG_PORT);
   }
 
   /* Save for later (put it into each session */

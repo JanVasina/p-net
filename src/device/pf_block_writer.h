@@ -526,6 +526,15 @@ void pf_put_alarm_block(
    uint8_t                 *p_bytes,
    uint16_t                *p_pos);
 
+void pf_put_ack_alarm_block(
+  bool                    is_big_endian,
+  pf_block_type_values_t  bh_type,
+  pf_alarm_data_t         *p_alarm_data,
+  pnet_pnio_status_t      *p_status,
+  uint16_t                res_len,
+  uint8_t                 *p_bytes,
+  uint16_t                *p_pos);
+
 /**
  * Insert a SubstituteValue block block into a buffer.
  * @param is_big_endian    In:   Endianness of the destination buffer.
