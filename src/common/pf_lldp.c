@@ -451,6 +451,12 @@ static int pf_lldp_parse_chassis_id(
       char    peer_chassis_id[MAX_PORT_NAME_LENGTH];
       pf_get_mem(p_get_info, p_pos, len, peer_chassis_id);
       peer_chassis_id[len] = '\0';
+      // During the Port 2 Port test, the Automated RT Tester repeatedly changes its chassis name
+      // from "ipc" to "pn-io" and vice versa
+      // this leads to unsuccessful "Different Access Ways Port 2 Port" test and also
+      // to the Exception in the RT Tester, which then stops responding
+      // So the peer name of ipc is ignored here.
+      // Probably would be better to ignore "pn-io" peer name.
       if(strcmp(peer_chassis_id, "ipc") != 0) // hack!
       {
         strcpy(net->lldp_check_peers_data.peer_chassis_id, peer_chassis_id);
@@ -611,7 +617,7 @@ int pf_lldp_recv(
         }
       }
 
-      LOG_WARNING(PF_ETH_LOG,
+      LOG_INFO(PF_ETH_LOG,
                "LLDP(%d): Check peers data changed:\nOLD chassis: %s port: %s\nNEW chassis: %s port: %s\n",
                __LINE__,
                net->previous_lldp_check_peers_data.peer_chassis_id,
