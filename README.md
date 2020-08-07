@@ -3,22 +3,11 @@ p-net Profinet device stack
 
 This is a fork of original p-net Profinet device stack.
 I am trying to modify the source code such as the device is able to pass the test cases of the Automated RT Tester v 2.4.1.3.
-Up to now the following tests passed sucessfully:
+**All the tests of the Automated RT Tester now pass.**
+Also the tests which needs the Profinet Test Rack are successful now.
 
-* all the DCP tests (with the exception of DCP - DCP Alias, which needs device 'b')
-* Behavior tests (scenarions 1 - 11)
-* Different Access Ways
-* Pdev_Records
-* AR - ASE
-* IP_UDP_RPC_I&M_EPM
-* VLAN
-* Diagnosis
-* SM_Legacy
-
-These are the tests where the port to port connection is sufficient.
-There are other tests for which a special equipment is necessary (device 'b', ethernet mains switch, etc.). Where the equipment will be available, I'll add further modifications.
-
-There are plenty of hacks in the source code (just to pass the tests) which probably break the design of the original p-net stack library.
+There are some hacks in the source code (just to pass the tests) which probably break the design of the original p-net stack library.
+See the comments in the source code.
 
 The code is modified for Zynqberry module from Trenz Electronics (TE-0726) which is very close to Raspberry 2B.
 
