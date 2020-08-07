@@ -104,7 +104,8 @@ void copy_ip_to_struct(pnet_cfg_ip_addr_t *destination_struct, uint32_t ip)
 */
 void print_ip_address(const char *prefix, uint32_t ip)
 {
-  printf("%s%d.%d.%d.%d\n",
+  os_log(LOG_LEVEL_INFO,
+         "%s%d.%d.%d.%d\n",
          prefix,
          (ip & 0xFF),
          ((ip >> 8) & 0xFF),

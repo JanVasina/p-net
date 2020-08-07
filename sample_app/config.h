@@ -46,6 +46,7 @@
 #define IP_SETTINGS_DATA_FILE_NAME     "/TGMotion/system/tgm-pnet-ip.dat"
 #define NAME_OF_STATION_DATA_FILE_NAME "/TGMotion/system/tgm-pnet-name.dat"
 #define IM_DATA_FILE_NAME              "/TGMotion/system/tgm-pnet-im.dat"
+#define LOG_FILE_NAME                  "/TGMotion/system/tgm-pnet-log.txt"
 
 
 /**************** From the GSDML file ****************************************/
@@ -180,6 +181,7 @@ typedef struct app_data_obj
   slot_t      custom_input_slots[PNET_MAX_MODULES];
   slot_t      custom_output_slots[PNET_MAX_MODULES];
   int         i2c_file;
+  pnet_pnio_status_t alarm_pnio_status;
   volatile bool running;
 } app_data_t;
 
@@ -188,6 +190,8 @@ typedef struct app_data_and_stack_obj
   app_data_t *appdata;
   pnet_t     *net;
 } app_data_and_stack_t;
+
+extern int log_to_file;
 
 #endif // config_h_included
 

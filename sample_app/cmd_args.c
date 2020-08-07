@@ -42,14 +42,15 @@ void show_usage()
   printf("Optional arguments:\n");
   printf("   --help       Show this help text and exit\n");
   printf("   -h           Show this help text and exit\n");
-  printf("   -v           Incresase verbosity\n");
+  printf("   -v           Increase verbosity\n");
+  printf("   -f           Log the output to file\n");
   printf("   -i INTERF    Set Ethernet interface name. Defaults to %s\n", APP_DEFAULT_ETHERNET_INTERFACE);
   printf("   -s NAME      Set station name. Defaults to %s\n", APP_DEFAULT_STATION_NAME);
   printf("   -e           Use 0.0.0.0 as default IP address\n");
   printf("   -d           Use system IP address as Profinet I/O address\n");
   printf("                (ignore tgm-pnet-ip.dat)\n");
   printf("   -l           Disable LED control\n");
-  
+
   printf("\n");
 }
 
@@ -79,14 +80,18 @@ struct cmd_args parse_commandline_arguments(int argc, char *argv[])
   output_arguments.verbosity = 0;
   output_arguments.use_ip_settings = IP_SETTINGS_FILE;
   output_arguments.use_led = 1;
+  log_to_file = 0;
 
   int option;
-  while ((option = getopt(argc, argv, "hedvli:s:")) != -1)
+  while ((option = getopt(argc, argv, "hedvfli:s:")) != -1)
   {
     switch (option)
     {
     case 'v':
       output_arguments.verbosity++;
+      break;
+    case 'f':
+      log_to_file = 1;
       break;
     case 'e':
       output_arguments.use_ip_settings = IP_SETTINGS_EMPTY;

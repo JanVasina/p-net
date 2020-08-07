@@ -50,12 +50,11 @@ void handleReadyForDataEvent(pnet_t *net, app_data_t *p_appdata)
   {
     if (p_appdata->arguments.verbosity > 0)
     {
-      os_log(LOG_LEVEL_ERROR,
+      os_log(LOG_LEVEL_WARNING,
              "Error returned when application telling that it is ready for data. Have you set IOCS or IOPS for all subslots?\n");
     }
     status.error_code   = 0x20; // application specific
     status.error_code_1 = ret;
-    status.error_code_1 = 1;    // to be changed
   }
 
   // create entry in logbook
@@ -69,16 +68,18 @@ void handleReadyForDataEvent(pnet_t *net, app_data_t *p_appdata)
 
 void handleAlarmEvent(pnet_t *net, app_data_t *p_appdata)
 {
-  pnet_pnio_status_t pnio_status = { 0,0,0,0 };
-  const int ret = pnet_alarm_send_ack(net, p_appdata->main_arep, &pnio_status);
-  if (ret != 0)
-  {
-    os_log(LOG_LEVEL_ERROR, "Error when sending alarm ACK. Error: %d\n", ret);
-  }
-  else if (p_appdata->arguments.verbosity > 0)
-  {
-    os_log(LOG_LEVEL_INFO, "Alarm ACK sent\n");
-  }
+//  pnet_pnio_status_t pnio_status = { 0,0,0,0 };
+//   const int ret = pnet_alarm_send_ack(net, p_appdata->main_arep, &(p_appdata->alarm_pnio_status));
+//   if (ret != 0)
+//   {
+//     os_log(LOG_LEVEL_ERROR, "Error when sending alarm ACK. Error: %d\n", ret);
+//   }
+//   else if (p_appdata->arguments.verbosity > 0)
+//   {
+//     os_log(LOG_LEVEL_INFO, "Alarm ACK sent\n");
+//   }
+  (void)net;
+  (void)p_appdata;
 }
 
 /* Set initial data and IOPS for custom input modules, and IOCS for custom output modules */
@@ -183,7 +184,6 @@ void setInputDataToController(pnet_t *net, app_data_t *p_appdata)
   }
 }
 
-#if 1
 // zero copy variant
 void getOutputDataFromController(pnet_t *net, app_data_t *p_appdata)
 {
@@ -209,47 +209,6 @@ void getOutputDataFromController(pnet_t *net, app_data_t *p_appdata)
     }
   }
 }
-
-#else
-// temporary buffer variant
-void getOutputDataFromController(pnet_t *net, app_data_t *p_appdata)
-{
-  bool    outputdata_is_updated = false;
-  uint8_t tempData[PNET_MAX_MODULE_DATA_SIZE];
-  for (size_t slot = 0; slot < PNET_MAX_MODULES; slot++)
-  {
-    slot_t *pOutputSlot = &(p_appdata->custom_output_slots[slot]);
-    const uint32_t module_id = pOutputSlot->module_id;
-    if (module_id != 0)
-    {
-      const uint16_t dataSize = pOutputSlot->size;
-      uint8_t        outputdata_iops = 0;
-      uint16_t       outputdata_length = sizeof(tempData);
-      bool           is_updated = false;
-      (void)pnet_output_get_data_and_iops(net,
-                                          APP_API,
-                                          slot,
-                                          PNET_SUBMOD_CUSTOM_IDENT,
-                                          &is_updated,
-                                          tempData,
-                                          &outputdata_length,
-                                          &outputdata_iops);
-      if (is_updated)
-      {
-        outputdata_is_updated = true;
-      }
-      if ((outputdata_is_updated == true)
-          && (outputdata_iops == PNET_IOXS_GOOD)
-          && (outputdata_length <= dataSize))
-      {
-        // data ok: copy output data to shared memory
-        // offset and size validation is done in copy_to_plc_memory()
-        copy_to_plc_memory(tempData, pOutputSlot->data_offset, outputdata_length);
-      }
-    }
-  }
-}
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 // user parameters support

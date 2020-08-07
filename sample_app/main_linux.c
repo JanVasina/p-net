@@ -48,6 +48,11 @@
 #define __STD(a)  a
 #endif
 
+/******************************************************************************/
+// global variables
+// 
+int log_to_file;
+
 /********************* Call-back function declarations ************************/
 
 static int app_exp_module_ind(pnet_t *net, void *arg, uint32_t api, uint16_t slot, uint32_t module_ident_number);
@@ -302,7 +307,8 @@ static pnet_cfg_t  pnet_default_cfg =
   .ip_gateway = { 0 },                /* Read from Linux kernel */
   .eth_addr = { { 0 } },                  /* Read from Linux kernel */
   .p_default_device = &thisDevice,
-  .check_peers_data = { 0, 0, { 0 }, 0, { 0 } },
+  .temp_check_peers_data = { 0, 0, { 0 }, 0, { 0 } },
+  .adjust_peer_to_peer_boundary = 0,
 };
 
 
@@ -318,7 +324,7 @@ static int app_connect_ind(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_DEBUG, "Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
            arep,
            p_result->pnio_status.error_code,
            p_result->pnio_status.error_decode,
@@ -344,7 +350,7 @@ static int app_release_ind(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_DEBUG, "Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
            arep,
            p_result->pnio_status.error_code,
            p_result->pnio_status.error_decode,
@@ -366,7 +372,7 @@ static int app_dcontrol_ind(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Dcontrol call-back. AREP: %u  Command: %d  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_DEBUG, "DControl call-back. AREP: %u  Command: %d  Status codes: %d %d %d %d\n",
            arep,
            control_command,
            p_result->pnio_status.error_code,
@@ -388,7 +394,7 @@ static int app_ccontrol_cnf(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Ccontrol confirmation call-back. AREP: %u  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_DEBUG, "CControl confirmation call-back. AREP: %u  Status codes: %d %d %d %d\n",
            arep,
            p_result->pnio_status.error_code,
            p_result->pnio_status.error_decode,
@@ -492,7 +498,8 @@ static int app_state_ind(
           }
           break;
         }
-        printf("Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u  %s\n",
+        os_log(LOG_LEVEL_DEBUG, 
+               "Callback on event PNET_EVENT_ABORT. Error class: %u Error code: %u  %s\n",
                (unsigned)err_cls, (unsigned)err_code, error_description);
       }
     }
@@ -510,7 +517,7 @@ static int app_state_ind(
   {
     if (p_appdata->arguments.verbosity > 0)
     {
-      printf("Callback on event PNET_EVENT_PRMEND. AREP: %u\n", arep);
+      os_log(LOG_LEVEL_DEBUG, "Callback on event PNET_EVENT_PRMEND. AREP: %u\n", arep);
     }
 
     /* Set IOPS for DAP slot (has same numbering as the module identifiers) */
@@ -530,21 +537,21 @@ static int app_state_ind(
   {
     if (p_appdata->arguments.verbosity > 0)
     {
-      printf("Callback on event PNET_EVENT_DATA\n");
+      os_log(LOG_LEVEL_DEBUG, "Callback on event PNET_EVENT_DATA\n");
     }
   }
   else if (state == PNET_EVENT_STARTUP)
   {
     if (p_appdata->arguments.verbosity > 0)
     {
-      printf("Callback on event PNET_EVENT_STARTUP\n");
+      os_log(LOG_LEVEL_DEBUG, "Callback on event PNET_EVENT_STARTUP\n");
     }
   }
   else if (state == PNET_EVENT_APPLRDY)
   {
     if (p_appdata->arguments.verbosity > 0)
     {
-      printf("Callback on event PNET_EVENT_APPLRDY\n");
+      os_log(LOG_LEVEL_DEBUG, "Callback on event PNET_EVENT_APPLRDY\n");
     }
   }
 
@@ -560,7 +567,7 @@ static int app_reset_ind(
   app_data_t *p_appdata = (app_data_t *)arg;
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("*** Reset call-back. Application reset mandatory: %u  Reset mode: %d ***\n",
+    os_log(LOG_LEVEL_INFO, "*** Reset call-back. Application reset mandatory: %u  Reset mode: %d ***\n",
            should_reset_application,
            reset_mode);
   }
@@ -589,7 +596,7 @@ static int app_exp_module_ind(
 
   if (verbosity > 0)
   {
-    printf("Module plug call-back\n");
+    os_log(LOG_LEVEL_INFO, "Module plug call-back\n");
   }
 
   /* Find it in the list of supported modules */
@@ -604,26 +611,27 @@ static int app_exp_module_ind(
   {
     if(verbosity > 0)
     {
-      printf("  Pull old module.    API: %u Slot: 0x%x\n", api, slot);
+      os_log(LOG_LEVEL_INFO, "  Pull old module.    API: %u Slot: 0x%x\n", api, slot);
     }
 
     if (pnet_pull_module(net, api, slot) != 0)
     {
       if (verbosity > 0)
       {
-        printf("    Slot was empty.\n");
+        os_log(LOG_LEVEL_INFO, "    Slot was empty.\n");
       }
     }
 
     /* For now support any of the known modules in any slot */
     if (verbosity > 0)
     {
-      printf("  Plug module.        API: %u Slot: 0x%x Module ID: 0x%x Index in supported modules: %u\n", api, slot, (unsigned)module_ident, ix);
+      os_log(LOG_LEVEL_INFO, "  Plug module.        API: %u Slot: 0x%x Module ID: 0x%x Index in supported modules: %u\n", api, slot, (unsigned)module_ident, ix);
     }
     ret = pnet_plug_module(net, api, slot, module_ident);
     if (ret != 0)
     {
-      printf("[ERROR] Plug module failed. Ret: %u API: %u Slot: %u Module ID: 0x%x Index in list of supported modules: %u\n", ret, api, slot, (unsigned)module_ident, ix);
+      os_log(LOG_LEVEL_WARNING, 
+             "Plug module failed. Ret: %u API: %u Slot: %u Module ID: 0x%x Index in list of supported modules: %u\n", ret, api, slot, (unsigned)module_ident, ix);
     }
     else
     {
@@ -650,14 +658,15 @@ static int app_exp_module_ind(
       }
       else
       {
-        printf("[ERROR] Wrong slot number received: %u  It should be less than %u\n", slot, PNET_MAX_MODULES);
+        os_log(LOG_LEVEL_WARNING, "Wrong slot number received: %u  It should be less than %u\n", slot, PNET_MAX_MODULES);
       }
     }
 
   }
   else
   {
-    printf("[ERROR] Module ID %08x not found. API: %u Slot: %u\n",
+    os_log(LOG_LEVEL_WARNING, 
+           "Module ID %08x not found. API: %u Slot: %u\n",
            (unsigned)module_ident,
            api,
            slot);
@@ -697,7 +706,7 @@ static int app_exp_submodule_ind(
   {
     if (verbosity > 0)
     {
-      printf("  Pull old submodule. API: %u Slot: 0x%x Subslot: 0x%x\n",
+      os_log(LOG_LEVEL_INFO, "  Pull old submodule. API: %u Slot: 0x%x Subslot: 0x%x\n",
              api,
              slot,
              subslot);
@@ -707,13 +716,13 @@ static int app_exp_submodule_ind(
     {
       if (verbosity > 0)
       {
-        printf("     Subslot was empty.\n");
+        os_log(LOG_LEVEL_INFO, "     Subslot was empty.\n");
       }
     }
 
     if (verbosity > 0)
     {
-      printf("  Plug submodule.     API: %u Slot: 0x%x Module ID: 0x%-4x Subslot: 0x%x Submodule ID: 0x%x Index in supported submodules: %u Dir: %u In: %u Out: %u bytes\n",
+      os_log(LOG_LEVEL_INFO, "  Plug submodule.     API: %u Slot: 0x%x Module ID: 0x%-4x Subslot: 0x%x Submodule ID: 0x%x Index in supported submodules: %u Dir: %u In: %u Out: %u bytes\n",
              api,
              slot,
              (unsigned)module_ident,
@@ -732,7 +741,7 @@ static int app_exp_submodule_ind(
                               cfg_available_submodule_types[ix].outsize);
     if (ret != 0)
     {
-      printf("[ERROR] Plug submodule failed. Ret: %u API: %u Slot: %u Subslot 0x%x Module ID: 0x%x Submodule ID: 0x%x Index in list of supported modules: %u\n",
+      os_log(LOG_LEVEL_WARNING, "Plug submodule failed. Ret: %u API: %u Slot: %u Subslot 0x%x Module ID: 0x%x Submodule ID: 0x%x Index in list of supported modules: %u\n",
              ret,
              api,
              slot,
@@ -744,7 +753,7 @@ static int app_exp_submodule_ind(
   }
   else
   {
-    printf("[ERROR] Submodule ID 0x%x in module ID 0x%x not found. API: %u Slot: %u Subslot %u \n",
+    os_log(LOG_LEVEL_ERROR, " Submodule ID 0x%x in module ID 0x%x not found. API: %u Slot: %u Subslot %u \n",
            (unsigned)submodule_ident,
            (unsigned)module_ident,
            api,
@@ -767,7 +776,11 @@ static int app_new_data_status_ind(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("New data status callback. AREP: %u  Status changes: 0x%02x  Status: 0x%02x\n", arep, changes, data_status);
+    os_log(LOG_LEVEL_INFO, 
+           "New data status callback. AREP: %u  Status changes: 0x%02x  Status: 0x%02x\n", 
+           arep, 
+           changes, 
+           data_status);
   }
 
   return 0;
@@ -788,7 +801,8 @@ static int app_alarm_ind(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Alarm indicated callback. AREP: %u  API: %d  Slot: %d  Subslot: %d  Length: %d  USI: %d",
+    os_log(LOG_LEVEL_INFO, 
+           "Alarm indicated callback. AREP: %u  API: %d  Slot: %d  Subslot: %d  Length: %d  USI: %d\n",
            arep,
            api,
            slot,
@@ -796,7 +810,17 @@ static int app_alarm_ind(
            data_len,
            data_usi);
   }
-  os_event_set(p_appdata->main_events, EVENT_ALARM);
+
+//   if(slot == 0 && subslot == 0x8000)
+//   {
+//     p_appdata->alarm_pnio_status.error_code = PNET_ERROR_CODE_RTA_ERROR;
+//     p_appdata->alarm_pnio_status.error_decode = PNET_ERROR_DECODE_PNIO;
+//     p_appdata->alarm_pnio_status.error_code_1 = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
+//     p_appdata->alarm_pnio_status.error_code_2 = PNET_ERROR_CODE_2_ABORT_AR_ALARM_DATA_TOO_LONG;
+//     os_event_set(p_appdata->main_events, EVENT_ALARM);
+//   }
+
+//  os_event_set(p_appdata->main_events, EVENT_ALARM);
 
   return 0;
 }
@@ -811,7 +835,8 @@ static int app_alarm_cnf(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Alarm confirmed (by controller) callback. AREP: %u  Status code %u, %u, %u, %u\n",
+    os_log(LOG_LEVEL_INFO, 
+           "Alarm confirmed (by controller) callback. AREP: %u  Status code %u, %u, %u, %u\n",
            arep,
            p_pnio_status->error_code,
            p_pnio_status->error_decode,
@@ -833,7 +858,8 @@ static int app_alarm_ack_cnf(
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Alarm ACK confirmation (from controller) callback. AREP: %u  Result: %d\n", arep, res);
+    os_log(LOG_LEVEL_INFO, 
+           "Alarm ACK confirmation (from controller) callback. AREP: %u  Result: %d\n", arep, res);
   }
 
   return 0;
@@ -968,7 +994,7 @@ void *timer_thread_func(void *arg)
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("[INFO ] timer_thread_func terminated\n");
+    os_log(LOG_LEVEL_INFO, "[INFO ] timer_thread_func terminated\n");
   }
 
   rpmalloc_thread_finalize();
@@ -990,7 +1016,7 @@ void *pn_main(void *arg)
 
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("Waiting for connect request from IO-controller\n");
+    os_log(LOG_LEVEL_INFO, "Waiting for connect request from IO-controller\n");
   }
 
   /* Main loop */
@@ -1040,7 +1066,7 @@ void *pn_main(void *arg)
       os_event_clr(p_appdata->main_events, EVENT_ABORT); /* Re-arm */
       if (p_appdata->arguments.verbosity > 0)
       {
-        printf("Aborting the application\n");
+        os_log(LOG_LEVEL_INFO, "Aborting the application\n");
       }
     }
     else if (flags & EVENT_TERMINATE)
@@ -1051,7 +1077,7 @@ void *pn_main(void *arg)
   rpmalloc_thread_finalize();
   if (p_appdata->arguments.verbosity > 0)
   {
-    printf("[INFO ] pn_main terminated\n");
+    os_log(LOG_LEVEL_INFO, "[INFO ] pn_main terminated\n");
   }
   return NULL;
 }
@@ -1083,32 +1109,37 @@ static void faulthand(int32_t sig)
 
 int main(int argc, char *argv[])
 {
-  app_data_and_stack_t appdata_and_stack;
-  app_data_t appdata;
+  static app_data_and_stack_t appdata_and_stack;
+  static app_data_t appdata;
+
   memset(&appdata, 0, sizeof(appdata));
   appdata.alarm_allowed = true;
   appdata.main_arep = UINT32_MAX;
   appdata.b_disp_wrong_offset_warning = true;
   /* Parse and display command line arguments */
   appdata.arguments = parse_commandline_arguments(argc, argv);
-  printf("\n******* Starting TGMmini Profinet I/O application *******\n");
-  printf(  "***     Built " __DATE__ " " __TIME__ "                    ***\n");
-  printf(  "***     Using Profinet p-net stack by rt-labs.com     ***\n");
-  printf(  "***          (https://rt-labs.com/docs/pnet)          ***\n");
-  printf(  "***      and memory allocator by Mattias Jansson      ***\n");
-  printf(  "*******  (https://github.com/mjansson/rpmalloc)   *******\n\n");
+  appdata.running = true;
+  os_init(&appdata);
+
+  printf("\n");
+  os_log(LOG_LEVEL_INFO, "******* Starting TGMmini Profinet I/O application *******\n");
+  printf(   "***     Built " __DATE__ " " __TIME__ "                    ***\n");
+  printf(   "***     Using Profinet p-net stack by rt-labs.com     ***\n");
+  printf(   "***          (https://rt-labs.com/docs/pnet)          ***\n");
+  printf(   "***      and memory allocator by Mattias Jansson      ***\n");
+  printf(   "*******  (https://github.com/mjansson/rpmalloc)   *******\n\n");
 
   /* Read IP, netmask, gateway and MAC address from operating system */
   if (!does_network_interface_exist(appdata.arguments.eth_interface))
   {
-    printf("Error: The given Ethernet interface does not exist: %s\n", appdata.arguments.eth_interface);
+    os_log(LOG_LEVEL_ERROR, "Error: The given Ethernet interface does not exist: %s\n", appdata.arguments.eth_interface);
     exit(EXIT_CODE_ERROR);
   }
 
   uint32_t ip_int = read_ip_address(appdata.arguments.eth_interface);
   if (ip_int == IP_INVALID)
   {
-    printf("Error: Invalid IP address.\n");
+    os_log(LOG_LEVEL_ERROR, "Error: Invalid IP address.\n");
     exit(EXIT_CODE_ERROR);
   }
   appdata.def_ip = ip_int;
@@ -1119,7 +1150,7 @@ int main(int argc, char *argv[])
   uint32_t gateway_ip_int = read_default_gateway(appdata.arguments.eth_interface);
   if (gateway_ip_int == IP_INVALID)
   {
-    printf("Error: Invalid gateway IP address.\n");
+    os_log(LOG_LEVEL_ERROR, "Error: Invalid gateway IP address.\n");
     exit(EXIT_CODE_ERROR);
   }
 
@@ -1127,7 +1158,7 @@ int main(int argc, char *argv[])
   int ret = read_mac_address(appdata.arguments.eth_interface, &macbuffer);
   if (ret != 0)
   {
-    printf("Error: Can not read MAC address for Ethernet interface %s\n", appdata.arguments.eth_interface);
+    os_log(LOG_LEVEL_ERROR, "Error: Can not read MAC address for Ethernet interface %s\n", appdata.arguments.eth_interface);
     exit(EXIT_CODE_ERROR);
   }
 
@@ -1149,16 +1180,11 @@ int main(int argc, char *argv[])
   }
 
   // create default check peers data before read from disk (os_get_ip_suite())
-  strcpy(pnet_default_cfg.lldp_cfg.port_id, "port-001");
-  strcpy(pnet_default_cfg.lldp_cfg.chassis_id, "a");
-
-  pnet_default_cfg.check_peers_data.number_of_peers = 1;
-  pnet_default_cfg.check_peers_data.length_peer_port_id = 8;
-  strcpy(pnet_default_cfg.check_peers_data.peer_port_id, "port-001");
-  pnet_default_cfg.check_peers_data.length_peer_chassis_id = 1;
-  strcpy(pnet_default_cfg.check_peers_data.peer_chassis_id, "a");
-  // make a permanent copy
-  pnet_default_cfg.default_check_peers_data = pnet_default_cfg.check_peers_data;
+   pnet_default_cfg.temp_check_peers_data.number_of_peers = 1;
+   pnet_default_cfg.temp_check_peers_data.length_peer_port_id = 8;
+   strcpy(pnet_default_cfg.temp_check_peers_data.peer_port_id, "port-001");
+   pnet_default_cfg.temp_check_peers_data.length_peer_chassis_id = 1;
+   strcpy(pnet_default_cfg.temp_check_peers_data.peer_chassis_id, "a");
 
   if (appdata.arguments.use_ip_settings == IP_SETTINGS_EMPTY)
   {
@@ -1184,22 +1210,24 @@ int main(int argc, char *argv[])
       gateway_ip_int = gw;
       b_set_ip_suite = true;
     }
-
   }
+
+  strcpy(pnet_default_cfg.lldp_cfg.port_id, "port-001");
+  strcpy(pnet_default_cfg.lldp_cfg.chassis_id, appdata.arguments.station_name);
 
   if (open_plc_memory(&appdata) == false)
   {
-    printf("Error: Shared PLC memory cannot be opened.\n");
+    os_log(LOG_LEVEL_ERROR, "Error: Shared PLC memory cannot be opened.\n");
     exit(EXIT_CODE_ERROR);
   }
 
-  printf("Number of slots:    %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
-  printf("Log level:          %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
-  printf("Verbosity level:    %u\n", appdata.arguments.verbosity);
-  printf("Ethernet interface: %s\n", appdata.arguments.eth_interface);
+  os_log(LOG_LEVEL_INFO, "Number of slots:    %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
+  os_log(LOG_LEVEL_INFO, "Log level:          %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
+  os_log(LOG_LEVEL_INFO, "Verbosity level:    %u\n", appdata.arguments.verbosity);
+  os_log(LOG_LEVEL_INFO, "Ethernet interface: %s\n", appdata.arguments.eth_interface);
   print_ip_address("Linux IP address:   ", appdata.def_ip);
-  printf("Station name:       %s\n", appdata.arguments.station_name);
-  printf("MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
+  os_log(LOG_LEVEL_INFO, "Station name:       %s\n", appdata.arguments.station_name);
+  os_log(LOG_LEVEL_INFO, "MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
          macbuffer.addr[0],
          macbuffer.addr[1],
          macbuffer.addr[2],
@@ -1209,14 +1237,13 @@ int main(int argc, char *argv[])
   print_ip_address("IP address:         ", ip_int);
   print_ip_address("Netmask:            ", netmask_int);
   print_ip_address("Gateway:            ", gateway_ip_int);
-  printf("\n");
-  printf("Check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n",
-         pnet_default_cfg.check_peers_data.number_of_peers,
-         pnet_default_cfg.check_peers_data.length_peer_port_id,
-         pnet_default_cfg.check_peers_data.peer_port_id,
-         pnet_default_cfg.check_peers_data.length_peer_chassis_id,
-         pnet_default_cfg.check_peers_data.peer_chassis_id);
-  printf("\n\n");
+  os_log(LOG_LEVEL_INFO, "Adjust peer2peer:   0x%X\n\n", pnet_default_cfg.adjust_peer_to_peer_boundary);
+  os_log(LOG_LEVEL_INFO, "Temporary check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n\n\n",
+         pnet_default_cfg.temp_check_peers_data.number_of_peers,
+         pnet_default_cfg.temp_check_peers_data.length_peer_port_id,
+         pnet_default_cfg.temp_check_peers_data.peer_port_id,
+         pnet_default_cfg.temp_check_peers_data.length_peer_chassis_id,
+         pnet_default_cfg.temp_check_peers_data.peer_chassis_id);
 
   /* Set IP and gateway */
   strcpy(pnet_default_cfg.im_0_data.order_id, "2707");
@@ -1231,13 +1258,11 @@ int main(int argc, char *argv[])
   memset(&thisDevice, 0, sizeof(thisDevice));
   fillDefaultIM0FilterData(&thisDevice);
 
-  appdata.running = true;
-  os_init(&appdata);
   os_set_led(&appdata, 0, false);
 
   if ((ret = mlockall(MCL_CURRENT | MCL_FUTURE)) == -1)
   {
-    printf("Error: mlockall failed with error %i\n", ret);
+    os_log(LOG_LEVEL_ERROR, "Error: mlockall failed with error %i\n", ret);
     exit(EXIT_CODE_ERROR);
   }
 
@@ -1246,7 +1271,7 @@ int main(int argc, char *argv[])
 
   if (net == NULL)
   {
-    printf("Failed to initialize p-net. Do you have enough Ethernet interface permission?\n");
+    os_log(LOG_LEVEL_ERROR, "Failed to initialize p-net. Do you have enough Ethernet interface permission?\n");
     close_plc_memory();
     rpmalloc_finalize();
     exit(EXIT_CODE_ERROR);
@@ -1281,7 +1306,7 @@ int main(int argc, char *argv[])
   appdata.running = false;
   if (appdata.arguments.verbosity > 0)
   {
-    printf("\n[INFO ] finishing...\n");
+    os_log(LOG_LEVEL_INFO, "\n[INFO ] finishing...\n");
   }
 
   os_timer_destroy(appdata.main_timer); 
@@ -1289,7 +1314,7 @@ int main(int argc, char *argv[])
   os_set_led(&appdata, 0, true);
   os_exit(&appdata);
 
-  printf("\n** TGMmini Profinet I/O application finished **\n");
+  os_log(LOG_LEVEL_INFO, "\n** TGMmini Profinet I/O application finished **\n");
 
   return 0;
 }
