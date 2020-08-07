@@ -83,7 +83,7 @@ extern "C"
  */
 // use at least two ARs: one for IOC-AR and one for DAP-AR
 // in the GSDML file must be given NumberOfDeviceAccessAR="1" in DeviceAccessPointItem (this is DAP-AR)
-#define PNET_MAX_AR                                            (1+1) /**< Number of connections. Must be > 0. */
+#define PNET_MAX_AR                                            2     /**< Number of connections. Must be > 0. "Automated RT Tester" uses 2 */
 #define PNET_MAX_API                                           1     /**< Number of Application Processes. Must be > 0. */
 #define PNET_MAX_CR                                            2     /**< Per AR. 1 input and 1 output. */
 // number of modules is taken from GSDML file
@@ -353,6 +353,11 @@ extern "C"
 #define PNET_ERROR_CODE_2_ALPMR_WRONG_STATE                    0x03
 /* Reserved 0x04..0xff */
 
+
+#define PNET_ERROR_CODE_2_INVALID_BLOCK_LEN                    0x01
+#define PNET_ERROR_CODE_2_INVALID_BLOCK_VERSION_HIGH           0x02
+#define PNET_ERROR_CODE_2_INVALID_BLOCK_VERSION_LOW            0x03
+
 /**
  * # List of error_code_2 values, for
  * PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL (not exhaustive).
@@ -492,7 +497,8 @@ typedef struct pnet_result
  * Store PDPortDataCheck data, subtype CheckPeers
  */
 
-#define MAX_PORT_NAME_LENGTH 16
+#define MAX_PORT_NAME_LENGTH 256
+#define MAX_PORT_NAME_MASK   (0xFF)
 
 typedef struct pf_check_peers
 {
@@ -1190,8 +1196,8 @@ typedef struct pnet_cfg
    pnet_ethaddr_t          eth_addr;
 
    struct pf_device       *p_default_device;        // default device configuration
-   pf_check_peers_t        check_peers_data;
-   pf_check_peers_t        default_check_peers_data;
+   pf_check_peers_t        temp_check_peers_data;
+   uint32_t                adjust_peer_to_peer_boundary;
 } pnet_cfg_t;
 
 /**
