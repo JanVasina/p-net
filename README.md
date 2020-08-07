@@ -4,7 +4,7 @@ p-net Profinet device stack
 This is a fork of original p-net Profinet device stack.
 I am trying to modify the source code such as the device is able to pass the test cases of the Automated RT Tester v 2.4.1.3.
 **All the tests of the Automated RT Tester now pass.**
-Also the tests which needs the Profinet Test Rack are successful now.
+Also the tests which need the Profinet Test Rack are successful now.
 
 There are some hacks in the source code (just to pass the tests) which probably break the design of the original p-net stack library.
 See the comments in the source code.
