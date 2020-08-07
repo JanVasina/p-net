@@ -151,22 +151,25 @@ static void pf_ppm_finish_buffer(
   uint8_t                *p_payload = ((os_buf_t *)p_ppm->p_send_buffer)->payload;
   uint16_t                u16;
 
-  p_ppm->cycle += p_ppm->cycle_increment;
-  u16 = htons((uint16_t)(p_ppm->cycle));
+  if(p_payload != NULL)
+  {
+    p_ppm->cycle += p_ppm->cycle_increment;
+    u16 = htons((uint16_t)(p_ppm->cycle));
 
-   /* Insert data */
-  os_mutex_lock(net->ppm_buf_lock);
-  memcpy(&p_payload[p_ppm->buffer_pos], p_ppm->buffer_data, data_length);
-  os_mutex_unlock(net->ppm_buf_lock);
+    /* Insert data */
+    os_mutex_lock(net->ppm_buf_lock);
+    memcpy(&p_payload[p_ppm->buffer_pos], p_ppm->buffer_data, data_length);
+    os_mutex_unlock(net->ppm_buf_lock);
 
-   /* Insert cycle counter */
-  memcpy(&p_payload[p_ppm->cycle_counter_offset], &u16, sizeof(u16));
+    /* Insert cycle counter */
+    memcpy(&p_payload[p_ppm->cycle_counter_offset], &u16, sizeof(u16));
 
-   /* Insert data status */
-  memcpy(&p_payload[p_ppm->data_status_offset], &p_ppm->data_status, sizeof(p_ppm->data_status));
+    /* Insert data status */
+    memcpy(&p_payload[p_ppm->data_status_offset], &p_ppm->data_status, sizeof(p_ppm->data_status));
 
-   /* Insert transfer status */
-  memcpy(&p_payload[p_ppm->transfer_status_offset], &p_ppm->transfer_status, sizeof(p_ppm->transfer_status));
+    /* Insert transfer status */
+    memcpy(&p_payload[p_ppm->transfer_status_offset], &p_ppm->transfer_status, sizeof(p_ppm->transfer_status));
+  }
 }
 
 /**
@@ -194,15 +197,17 @@ static void pf_ppm_send(
 #endif // PNET_PROFILE != 0
 
   p_arg->ppm.ci_timer = UINT32_MAX;
-  if (p_arg->ppm.ci_running == true)
+
+  if (   (p_arg->ppm.ci_running == true) 
+      && (p_arg->ppm.p_send_buffer != NULL) 
+      && (p_arg->p_ar->in_use == true))
   {
     /* in_length is size of input to the controller */
     pf_ppm_finish_buffer(net, &p_arg->ppm, p_arg->in_length);
     /* Now send it */
     /* ToDo: Handle RT_CLASS_UDP */
 
-    if (   (p_arg->p_ar->in_use == true) // prevent from sending data from released AR (this check is probably not needed)
-        && (os_eth_send(p_arg->p_ar->p_sess->eth_handle, p_arg->ppm.p_send_buffer) <= 0))
+    if (os_eth_send(p_arg->p_ar->p_sess->eth_handle, p_arg->ppm.p_send_buffer) <= 0)
     {
       LOG_ERROR(PF_PPM_LOG, "PPM(%d): Error from os_eth_send(ppm) of %u bytes, errno %i\n", 
                 __LINE__, 
@@ -336,6 +341,7 @@ int pf_ppm_close_req(
   }
 
   os_buf_free(p_ppm->p_send_buffer);
+  p_ppm->p_send_buffer = NULL;
   pf_ppm_set_state(p_ppm, PF_PPM_STATE_W_START);
 
   cnt = atomic_fetch_sub(&net->ppm_instance_cnt, 1);
@@ -614,7 +620,7 @@ int pf_ppm_get_data_and_iops(
   else
   {
     /* May happen after an ABORT */
-    LOG_WARNING(PF_PPM_LOG, "PPM(%d): No data descriptor found for get data\n", __LINE__);
+    LOG_INFO(PF_PPM_LOG, "PPM(%d): No data descriptor found for get data\n", __LINE__);
   }
 
   return ret;
@@ -683,7 +689,7 @@ int pf_ppm_get_iocs(
   else
   {
     /* May happen after an ABORT */
-    LOG_ERROR(PF_PPM_LOG, "PPM(%d): No data descriptor found for get iocs\n", __LINE__);
+    LOG_INFO(PF_PPM_LOG, "PPM(%d): No data descriptor found for get iocs\n", __LINE__);
   }
 
   return ret;

@@ -131,8 +131,9 @@ static void pf_cpm_control_interval_expired(
       if (p_iocr->cpm.dht >= p_iocr->cpm.data_hold_factor)
       {
         /* dht expired */
-        LOG_DEBUG(PF_CPM_LOG, "CPM(%i): dht expired\n", __LINE__);
-        p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT;
+        LOG_WARNING(PF_CPM_LOG, "CPM(%i): dht expired\n", __LINE__);
+        //p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT;
+        p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CONSUMER_DHT_EXPIRED;
 
         p_iocr->cpm.dht = 0;
         p_iocr->cpm.ci_running = false;    /* Stop timer */
@@ -582,7 +583,7 @@ int pf_cpm_activate_req(
     p_cpm->frame_id[0] = p_iocr->param.frame_id;
     pf_eth_frame_id_map_add(net, p_cpm->frame_id[0], pf_cpm_c_data_ind, p_iocr);
 
-    if (p_cpm->nbr_frame_id == 2)
+    if (p_cpm->nbr_frame_id == 2) // -V547
     {
       p_cpm->frame_id[1] = p_cpm->frame_id[0] + 1;
       pf_eth_frame_id_map_add(net, p_cpm->frame_id[1], pf_cpm_c_data_ind, p_iocr);

@@ -235,6 +235,12 @@ void pf_alarm_send(
   pnet_t *net,
   pnet_pnio_status_t *p_pnio_status);
 
+
+// send alarm according to Table 5 of TCIS_00000012_Alarm_V2.35.2.00008.pdf
+void pf_alarm_port_data_changed(
+  pnet_t             *net,
+  pf_ar_t            *p_ar);
+
 #ifdef __cplusplus
 }
 #endif

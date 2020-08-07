@@ -43,6 +43,12 @@ void pf_lldp_init(
 void pf_lldp_send(
    pnet_t                  *net);
 
+// receive and process an LLDP message
+// @param net              InOut: The p-net stack instance
+int pf_lldp_recv(
+  pnet_t                  *net,
+  os_buf_t                *p_buf);
+
 #ifdef __cplusplus
 }
 #endif
