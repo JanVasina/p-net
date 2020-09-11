@@ -320,11 +320,11 @@ static int app_connect_ind(
   uint32_t       arep,
   pnet_result_t *p_result)
 {
-  app_data_t *p_appdata = (app_data_t *)arg;
+//  app_data_t *p_appdata = (app_data_t *)arg;
 
-  if (p_appdata->arguments.verbosity > 0)
+//  if (p_appdata->arguments.verbosity > 0)
   {
-    os_log(LOG_LEVEL_DEBUG, "Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_INFO, "Connect call-back. AREP: %u  Status codes: %d %d %d %d\n",
            arep,
            p_result->pnio_status.error_code,
            p_result->pnio_status.error_decode,
@@ -346,11 +346,11 @@ static int app_release_ind(
   uint32_t      arep,
   pnet_result_t *p_result)
 {
-  app_data_t *p_appdata = (app_data_t *)arg;
+//  app_data_t *p_appdata = (app_data_t *)arg;
 
-  if (p_appdata->arguments.verbosity > 0)
+//  if (p_appdata->arguments.verbosity > 0)
   {
-    os_log(LOG_LEVEL_DEBUG, "Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
+    os_log(LOG_LEVEL_INFO, "Release (disconnect) call-back. AREP: %u  Status codes: %d %d %d %d\n",
            arep,
            p_result->pnio_status.error_code,
            p_result->pnio_status.error_decode,
