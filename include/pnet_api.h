@@ -93,7 +93,7 @@ extern "C"
 #define PNET_MAX_DFP_IOCR                                      2     /**< Allowed values are 0 (zero) or 2. */
 #define PNET_MAX_PORT                                          1     /**< 2 for media redundancy. Currently only 1 is supported. */
 #define PNET_MAX_LOG_BOOK_ENTRIES                              16
-#define PNET_MAX_ALARMS                                        3     /**< Per AR and queue. One queue for hi and one for lo alarms. */
+#define PNET_MAX_ALARMS                                        5     /**< Per AR and queue. One queue for hi and one for lo alarms. */
 #define PNET_MAX_DIAG_ITEMS                                    200   /**< Total, per device. Max is 65534 items. */
 
 #if PNET_OPTION_MC_CR
