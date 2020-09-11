@@ -1097,13 +1097,13 @@ static int pf_cmdev_set_state(
   pf_cmdev_state_values_t state)
 {
   p_ar->cmdev_state = state;
-   LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(state), p_ar->arep);
+  LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(state), p_ar->arep);
 
   switch (state)
   {
   case PF_CMDEV_STATE_ABORT:
     pf_cmdev_state_ind(net, p_ar, PNET_EVENT_ABORT);
-      LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(PF_CMDEV_STATE_W_CIND), p_ar->arep);
+    LOG_DEBUG(PNET_LOG, "CMDEV(%d): New state: %s for AR with AREP %u\n", __LINE__, pf_cmdev_state_to_string(PF_CMDEV_STATE_W_CIND), p_ar->arep);
 
     pf_device_clear(net, p_ar);
     break;
@@ -1189,11 +1189,11 @@ int pf_cmdev_cm_abort(
       switch (p_ar->cmdev_state)
       {
       case PF_CMDEV_STATE_W_CRES:
-            pf_cmdev_set_state(net, p_ar, PF_CMDEV_STATE_ABORT);
+        pf_cmdev_set_state(net, p_ar, PF_CMDEV_STATE_ABORT);
         res = 0;
         break;
       case PF_CMDEV_STATE_DATA:
-            pf_cmdev_set_state(net, p_ar, PF_CMDEV_STATE_ABORT);
+        pf_cmdev_set_state(net, p_ar, PF_CMDEV_STATE_ABORT);
         res = 0;
         break;
       default:

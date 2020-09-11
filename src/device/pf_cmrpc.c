@@ -529,7 +529,8 @@ static int pf_ar_allocate(
  * @param p_ar             In:   The AR instance.
  */
 static void pf_ar_release(
-  pf_ar_t *p_ar)
+  pnet_t                 *net,
+  pf_ar_t                *p_ar)
 {
   if (p_ar != NULL)
   {
@@ -542,6 +543,8 @@ static void pf_ar_release(
     {
       LOG_WARNING(PNET_LOG, "RPC(%d): AR already released\n", __LINE__);
     }
+
+    pf_eth_frame_id_map_remove(net, net->iocr_frame_id[0]);
   }
   else
   {
@@ -1070,7 +1073,7 @@ static void pf_cmrpc_send_rpc_alarm(
   pnio_status.error_decode = PNET_ERROR_DECODE_PNIO;
   pnio_status.error_code_1 = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
   pnio_status.error_code_2 = PNET_ERROR_CODE_2_ABORT_AR_RE_RUN_ABORTS_EXISTING;
-  pf_alarm_send(net, &pnio_status);
+  pf_alarm_send(net, &(net->last_valid_src_eth_addr), &pnio_status);
   (void)current_time;
   (void)arg;
   LOG_INFO(PF_RPC_LOG, "CMRPC(%d): send ABORT existing ALARM\n", __LINE__);
@@ -1142,7 +1145,7 @@ static int pf_cmrpc_rm_connect_ind(
         pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMRPC, PNET_ERROR_CODE_2_CMRPC_STATE_CONFLICT);
         (void)pf_cmdev_state_ind(net, p_ar, PNET_EVENT_ABORT);
         (void)pf_cmdev_state_ind(net, p_ar_2, PNET_EVENT_ABORT);
-        pf_ar_release(p_ar_2);
+        pf_ar_release(net, p_ar_2);
         // indication above clear the error
         pf_set_error(&p_sess->rpc_result, PNET_ERROR_CODE_CONNECT, PNET_ERROR_DECODE_PNIO, PNET_ERROR_CODE_1_CMDEV, PNET_ERROR_CODE_2_CMDEV_STATE_CONFLICT);
         pf_scheduler_add(net, 2000, "alarm_send", pf_cmrpc_send_rpc_alarm, p_ar, &(net->rpc_alarm_timeout));
@@ -1195,7 +1198,7 @@ static int pf_cmrpc_rm_connect_ind(
     /* Connect failed: Terminate session - free all resources */
     LOG_INFO(PF_RPC_LOG, "RPC(%d): Connect failed - Free AR!\n", __LINE__);
 
-    pf_ar_release(p_ar);
+    pf_ar_release(net, p_ar);
     p_sess->p_ar = NULL;
     p_sess->kill_session = true;
   }
@@ -3066,7 +3069,7 @@ static int pf_cmrpc_dce_packet(
         * The ProfiNet spec say little about how to handle these packets.
         * The DCE RPC spec says to cancel the connection.
         */
-        LOG_ERROR(PF_RPC_LOG, "CMRPC(%d): CANCEL received\n", __LINE__);
+        LOG_WARNING(PF_RPC_LOG, "CMRPC(%d): CANCEL received\n", __LINE__);
 
         (void)pf_cmdev_cm_abort(net, p_sess->p_ar);
 
@@ -3349,7 +3352,7 @@ int pf_cmrpc_cmdev_state_ind(
       }
 
       /* Finally free the AR */
-      pf_ar_release(p_ar);
+      pf_ar_release(net, p_ar);
     }
     else
     {
