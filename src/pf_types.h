@@ -762,6 +762,7 @@ typedef struct pf_eth_frame_id_map
    uint16_t                frame_id;
    pf_eth_frame_handler_t  frame_handler;
    void                    *p_arg;
+   uint64_t                time_created;
 } pf_eth_frame_id_map_t;
 
 
@@ -1481,7 +1482,7 @@ typedef struct pf_apmx
    os_mbox_t               *p_alarm_q;
    /* The messages sent via the mailbox */
    pf_apmr_msg_t           apmr_msg[PNET_MAX_ALARMS];
-   uint16_t                apmr_msg_nbr;
+   uint32_t                apmr_msg_nbr;
 
    /* Latest sent alarm */
    os_buf_t                *p_rta;
@@ -2064,6 +2065,8 @@ struct pnet
    uint8_t                             pnet_rsp_frame[PF_FRAME_BUFFER_SIZE];
    uint8_t                             syslog_frame[PF_FRAME_BUFFER_SIZE];
    pf_check_peers_t                    lldp_check_peers_data; // data got by LLDP
+   char                                real_peer_port_id[MAX_PORT_NAME_LENGTH]; // full real port id
+   uint32_t                            real_length_peer_port_id;
    pf_check_peers_t                    previous_lldp_check_peers_data; // previous data got by LLDP for comparison
    pf_check_peers_t                    iocr_check_peers_data; // data at the time of established AR
    pf_check_peers_t                    alarm_check_peers_data;
@@ -2074,6 +2077,7 @@ struct pnet
    uint32_t                            length_alias_name;
    char                                alias_name[ALIAS_NAME_SIZE];
    bool                                remote_peers_check_locked;
+   uint16_t                            iocr_frame_id[2];         /* 2 needed for some instances of RT_CLASS_3 */
 };
 
 // useful null UUID for memcmp()

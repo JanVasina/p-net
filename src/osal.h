@@ -162,8 +162,8 @@ void os_event_clr (os_event_t * event, uint32_t value);
 void os_event_destroy (os_event_t * event);
 
 os_mbox_t * os_mbox_create (size_t size);
-int os_mbox_fetch (os_mbox_t * mbox, void ** msg, uint32_t time);
-int os_mbox_post (os_mbox_t * mbox, void * msg, uint32_t time);
+int os_mbox_fetch (os_mbox_t * mbox, void ** msg, uint32_t time_us);
+int os_mbox_post (os_mbox_t * mbox, void * msg, uint32_t time_us);
 void os_mbox_destroy (os_mbox_t * mbox);
 
 os_timer_t * os_timer_create (uint32_t us, void (*fn) (os_timer_t * timer, void * arg),
