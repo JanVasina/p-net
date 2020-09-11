@@ -38,9 +38,9 @@
 #include "osal.h"
 #include "plc_memory.h"
 
-#define USE_RPMALLOC
+// #define USE_RPMALLOC
 
-#define MAX_STATIC_BUFS 10 
+#define MAX_STATIC_BUFS 10
 #define BUF_SIZE        (2048 - sizeof(uint32_t))
 
 #define USECS_PER_SEC     (1 * 1000 * 1000)
@@ -494,7 +494,7 @@ os_mbox_t *os_mbox_create(size_t size)
   os_mbox_t *mbox;
   pthread_mutexattr_t attr;
 
-  mbox = (os_mbox_t *)os_malloc(sizeof(*mbox) + size * sizeof(void *));
+  mbox = (os_mbox_t *)os_malloc(sizeof(*mbox) + (size * sizeof(void *)));
 
   pthread_cond_init(&mbox->cond, NULL);
   pthread_mutexattr_init(&attr);
@@ -509,7 +509,7 @@ os_mbox_t *os_mbox_create(size_t size)
   return mbox;
 }
 
-int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time)
+int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time_us)
 {
   if (mbox == NULL)
   {
@@ -518,10 +518,10 @@ int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time)
 
   struct timespec ts;
   int error = 0;
-  uint64_t nsec = (uint64_t)time * 1000 * 1000;
 
-  if (time != OS_WAIT_FOREVER)
+  if (time_us != OS_WAIT_FOREVER)
   {
+    uint64_t nsec = (uint64_t)time_us * 1000ULL;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     nsec += ts.tv_nsec;
 
@@ -533,7 +533,7 @@ int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time)
 
   while (mbox->count == 0)
   {
-    if (time != OS_WAIT_FOREVER)
+    if (time_us != OS_WAIT_FOREVER)
     {
       error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
 #ifdef _DEBUG
@@ -563,10 +563,17 @@ timeout:
   pthread_mutex_unlock(&mbox->mutex);
   pthread_cond_signal(&mbox->cond);
 
-  return (error) ? 1 : 0;
+  if (error)
+  {
+    return 1;
+  }
+  else 
+  {
+    return 0;
+  }
 }
 
-int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time)
+int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time_us)
 {
   if (mbox == NULL)
   {
@@ -575,10 +582,10 @@ int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time)
 
   struct timespec ts;
   int error = 0;
-  uint64_t nsec = (uint64_t)time * 1000 * 1000;
 
-  if (time != OS_WAIT_FOREVER)
+  if (time_us != OS_WAIT_FOREVER)
   {
+    uint64_t nsec = (uint64_t)time_us * 1000ULL;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     nsec += ts.tv_nsec;
 
@@ -590,7 +597,7 @@ int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time)
 
   while (mbox->count == mbox->size)
   {
-    if (time != OS_WAIT_FOREVER)
+    if (time_us != OS_WAIT_FOREVER)
     {
       error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
 #ifdef _DEBUG
@@ -620,7 +627,14 @@ timeout:
   pthread_mutex_unlock(&mbox->mutex);
   pthread_cond_signal(&mbox->cond);
 
-  return (error) ? 1 : 0;
+  if (error)
+  {
+    return 1;
+  }
+  else
+  {
+    return 0;
+  }
 }
 
 void os_mbox_destroy(os_mbox_t *mbox)
@@ -776,17 +790,19 @@ os_buf_t *os_buf_alloc(uint32_t length)
 
   // first check the static pbufs
   os_mutex_lock(pbuf_mutex);
-  for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
+  if(length < BUF_SIZE - sizeof(os_buf_t))
   {
-    if (bufs[i].in_use == false)
+    for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
     {
-      bufs[i].in_use = true;
-      p = (os_buf_t *)(bufs[i].data);
-      break;
+      if (bufs[i].in_use == false)
+      {
+        bufs[i].in_use = true;
+        p = (os_buf_t *)(bufs[i].data);
+        break;
+      }
     }
   }
-  os_mutex_unlock(pbuf_mutex);
-
+  
   if(p == NULL)
   {
     p = os_malloc(sizeof(os_buf_t) + length);
@@ -794,6 +810,7 @@ os_buf_t *os_buf_alloc(uint32_t length)
 
   p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
   p->len = length;
+  os_mutex_unlock(pbuf_mutex);
 
   return p;
 }
@@ -809,17 +826,27 @@ void os_buf_free(os_buf_t *p)
   // first check the static pbufs
   uint8_t *ptr_to_check = (uint8_t *)p;
   os_mutex_lock(pbuf_mutex);
-  for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
+  if(p->len < BUF_SIZE - sizeof(os_buf_t))
   {
-    if ((bufs[i].in_use == true) && (ptr_to_check == bufs[i].data))
+    for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
     {
-      bufs[i].in_use = false;
-      os_mutex_unlock(pbuf_mutex);
-      return;
+      if (ptr_to_check == bufs[i].data)
+      {
+        if (bufs[i].in_use == true)
+        {
+          bufs[i].in_use = false;
+        }
+        else
+        {
+          os_log(LOG_LEVEL_ERROR, "PNET: double os_buf_free()\n");
+        }
+        os_mutex_unlock(pbuf_mutex);
+        return;
+      }
     }
   }
-  os_mutex_unlock(pbuf_mutex);
   os_free(p);
+  os_mutex_unlock(pbuf_mutex);
 }
 
 uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment)
@@ -890,7 +917,7 @@ int os_set_ip_suite(
     }
   }
 
-  if (p_appdata->arguments.verbosity > 0)
+//  if (p_appdata->arguments.verbosity > 0)
   {
     os_log(LOG_LEVEL_INFO, "os_set_ip_suite: set new IP parameters %s:\n",
            b_temporary ? "temporarily" : "PERMANENT");
@@ -909,8 +936,8 @@ int os_set_ip_suite(
 int os_set_station_name(void *arg, const char *name, bool b_temporary)
 {
   int rv = 0;
-  app_data_t *p_appdata = (app_data_t *)arg;
-  if (p_appdata->arguments.verbosity > 0)
+  //app_data_t *p_appdata = (app_data_t *)arg;
+//  if (p_appdata->arguments.verbosity > 0)
   {
     os_log(LOG_LEVEL_INFO, "set new station name %s:\n%s\n\n",
            b_temporary ? "temporarily" : "PERMANENT",

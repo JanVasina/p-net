@@ -101,15 +101,15 @@ void set_led(int fd, uint16_t id, bool on)
   {
     if (id == 2)
     {
-      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_GREEN);
+      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_ORANGE);
     }
     else if (id == 1)
     {
-      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_ORANGE);
+      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_RED);
     }
     else
     {
-      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_RED);
+      i2c_smbus_write_byte_data(fd, GPIO_WRITE_REG, GPIO_WRITE_NOTHING);
     }
   }
 }
