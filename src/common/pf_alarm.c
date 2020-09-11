@@ -33,6 +33,7 @@
 
 #define ALARM_VLAN_PRIO_LOW         5
 #define ALARM_VLAN_PRIO_HIGH        6
+#define ALARM_MBOX_WAIT_MS          0
 
 static const uint16_t alarm_slot_n = 0;
 static const uint16_t alarm_subslot_n = 0x8001;
@@ -479,24 +480,30 @@ static int pf_alarm_apmr_high_handler(
   void                   *p_arg)
 {
   pf_apmx_t              *p_apmx = (pf_apmx_t *)p_arg;
-  pf_apmr_msg_t          *p_apmr_msg;
-  uint16_t                nbr;
 
-  LOG_INFO(PF_ALARM_LOG, "Alarm(%d): Received high prio alarm frame.\n", __LINE__);
+  LOG_DEBUG(PF_ALARM_LOG, "Alarm(%d): Received high prio alarm frame.\n", __LINE__);
+  if (p_apmx->apmr_state == PF_APMR_STATE_CLOSED)
+  {
+    LOG_WARNING(PF_ALARM_LOG, "Alarm(%d): high alarm in closed state\n", __LINE__);
+    return 0; // not handled
+  }
   if (p_buf != NULL)
   {
-    nbr = p_apmx->apmr_msg_nbr++;    /* ToDo: Make atomic */
-    if (p_apmx->apmr_msg_nbr >= NELEMENTS(p_apmx->apmr_msg))
-    {
-      p_apmx->apmr_msg_nbr = 0;
-    }
-    p_apmr_msg = &p_apmx->apmr_msg[nbr];
+    uint32_t nbr = p_apmx->apmr_msg_nbr;
+    pf_apmr_msg_t *p_apmr_msg = &p_apmx->apmr_msg[nbr];
     p_apmr_msg->p_buf = p_buf;
     p_apmr_msg->frame_id_pos = frame_id_pos;
-    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, 0) != 0)
+    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, ALARM_MBOX_WAIT_MS) != 0)
     {
-      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one alarm\n", __LINE__);
+      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one high alarm\n", __LINE__);
+      return 0; // not handled
     }
+    nbr++;
+    if (nbr >= NELEMENTS(p_apmx->apmr_msg))
+    {
+      nbr = 0;
+    }
+    p_apmx->apmr_msg_nbr = nbr;
   }
 
   return 1; // means handled
@@ -526,24 +533,31 @@ static int pf_alarm_apmr_low_handler(
   void                   *p_arg)
 {
   pf_apmx_t     *p_apmx = (pf_apmx_t *)p_arg;
-  pf_apmr_msg_t *p_apmr_msg;
-  uint16_t       nbr;
 
-  LOG_INFO(PF_ALARM_LOG, "Alarm(%d): Received low prio alarm frame.\n", __LINE__);
+  LOG_DEBUG(PF_ALARM_LOG, "Alarm(%d): Received low prio alarm frame.\n", __LINE__);
+  if (p_apmx->apmr_state == PF_APMR_STATE_CLOSED)
+  {
+    LOG_WARNING(PF_ALARM_LOG, "Alarm(%d): low alarm in closed state\n", __LINE__);
+    return 0; // not handled
+  }
+
   if (p_buf != NULL)
   {
-    nbr = p_apmx->apmr_msg_nbr++;    /* ToDo: Make atomic */
-    if (p_apmx->apmr_msg_nbr >= NELEMENTS(p_apmx->apmr_msg))
-    {
-      p_apmx->apmr_msg_nbr = 0;
-    }
-    p_apmr_msg = &p_apmx->apmr_msg[nbr];
+    uint32_t nbr = p_apmx->apmr_msg_nbr;
+    pf_apmr_msg_t *p_apmr_msg = &p_apmx->apmr_msg[nbr];
     p_apmr_msg->p_buf = p_buf;
     p_apmr_msg->frame_id_pos = frame_id_pos;
-    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, 0) != 0)
+    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, ALARM_MBOX_WAIT_MS) != 0)
     {
-      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one alarm\n", __LINE__);
+      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one low alarm\n", __LINE__);
+      return 0; // not handled
     }
+    nbr++;    /* ToDo: Make atomic */
+    if (nbr >= NELEMENTS(p_apmx->apmr_msg))
+    {
+      nbr = 0;
+    }
+    p_apmx->apmr_msg_nbr = nbr;
   }
 
   return 1; // means handled
@@ -739,8 +753,8 @@ static int pf_alarm_apmx_activate(
     }
   }
 
-  pf_eth_frame_id_map_add(net, PF_FRAME_ID_ALARM_LOW, pf_alarm_apmr_low_handler, &p_ar->apmx[0]);
-  pf_eth_frame_id_map_add(net, PF_FRAME_ID_ALARM_HIGH, pf_alarm_apmr_high_handler, &p_ar->apmx[1]);
+  pf_eth_frame_id_map_add(net, PF_FRAME_ID_ALARM_LOW, pf_alarm_apmr_low_handler, &p_ar->apmx[0], true);
+  pf_eth_frame_id_map_add(net, PF_FRAME_ID_ALARM_HIGH, pf_alarm_apmr_high_handler, &p_ar->apmx[1], true);
 
   return ret;
 }
@@ -987,7 +1001,7 @@ static int pf_alarm_apms_a_data_req(
         pf_put_uint16(true, var_part_len, PF_FRAME_BUFFER_SIZE, p_buf, &var_part_len_pos);
 
         p_rta->len = pos;
-        LOG_INFO(PF_AL_BUF_LOG, "Alarm(%d): Send an alarm frame.\n", __LINE__);
+        LOG_DEBUG(PF_AL_BUF_LOG, "Alarm(%d): Send an alarm frame.\n", __LINE__);
         if (os_eth_send(p_apmx->p_ar->p_sess->eth_handle, p_rta) <= 0)
         {
           LOG_ERROR(PF_ALARM_LOG, "pf_alarm(%d): Error from os_eth_send(rta)\n", __LINE__);
@@ -1240,7 +1254,7 @@ static void pf_alarm_ack_rta_pdu(
   pnet_pnio_status_t pnio_status;
 
   // copy dst address
-  memcpy(&p_buf[0], net->last_valid_src_eth_addr.addr, sizeof(pnet_ethaddr_t));
+  memcpy(&p_buf[0], &(p_apmx->da), sizeof(pnet_ethaddr_t));
 
   pos += sizeof(pnet_ethaddr_t);
 
@@ -1470,7 +1484,7 @@ static int pf_alarm_apmr_a_data_ind(
           pnio_status.error_code_2 = err_code;
 
           pf_fspm_create_log_book_entry(net, p_ar->arep, &pnio_status, __LINE__);
-          pf_alarm_send(net, &pnio_status);
+          pf_alarm_send(net, &p_apmx->da, &pnio_status);
 
           // disable send of low CLOSE alarm
           // in pf_alarm_apmx_close()
@@ -1587,12 +1601,15 @@ static int pf_alarm_apmr_periodic(
     p_buf = NULL;
     while ((ret == 0) &&
            (p_apmx->apmr_state != PF_APMR_STATE_CLOSED) &&
-           (os_mbox_fetch(p_apmx->p_alarm_q, (void **)&p_alarm_msg, 0) == 0))
+           (os_mbox_fetch(p_apmx->p_alarm_q, (void **)&p_alarm_msg, ALARM_MBOX_WAIT_MS) == 0))
     {
-      if (p_alarm_msg != NULL)
+      if ((p_alarm_msg != NULL) && (p_alarm_msg->p_buf != NULL))
       {
         /* Got something - extract! */
         p_buf = p_alarm_msg->p_buf;
+        // copy destination MAC address from the recv data (source address)
+        memcpy(&p_apmx->da, (uint8_t *)(p_buf->payload) + sizeof(pnet_ethaddr_t), sizeof(pnet_ethaddr_t));
+
         pos = p_alarm_msg->frame_id_pos + sizeof(uint16_t); /* Skip frame_id */
 
         get_info.result = PF_PARSE_OK;
@@ -1647,7 +1664,7 @@ static int pf_alarm_apmr_periodic(
             }
             break;
           case PF_RTA_PDU_TYPE_DATA:
-            LOG_INFO(PF_ALARM_LOG, "Alarm(%d): DATA received\n", __LINE__);
+            LOG_DEBUG(PF_ALARM_LOG, "Alarm(%d): DATA received\n", __LINE__);
             ret = pf_alarm_apmr_a_data_ind(net, p_apmx, &fixed, var_part_len, &get_info, pos);
             break;
           case PF_RTA_PDU_TYPE_ERR:
@@ -1692,6 +1709,7 @@ static int pf_alarm_apmr_periodic(
         LOG_DEBUG(PF_AL_BUF_LOG, "Alarm(%d): Free received buffer\n", __LINE__);
         os_buf_free(p_buf);
         p_buf = NULL;
+        p_alarm_msg->p_buf = NULL;
       }
       else
       {
@@ -2281,8 +2299,8 @@ static void pf_alarm_check_peers_timeout(
 }
 
 void pf_alarm_port_data_changed(
-  pnet_t             *net,
-  pf_ar_t            *p_ar)
+  pnet_t          *net,
+  pf_ar_t         *p_ar)
 {
   os_buf_t        *p_rta = os_buf_alloc(PF_FRAME_BUFFER_SIZE);
   uint8_t         *p_buf = p_rta->payload;
@@ -2462,6 +2480,7 @@ void pf_alarm_port_data_changed(
 
 void pf_alarm_send(
   pnet_t             *net,
+  pnet_ethaddr_t     *p_dst_addr,
   pnet_pnio_status_t *p_pnio_status)
 {
   os_buf_t *p_raw_buf = os_buf_alloc(PF_FRAME_BUFFER_SIZE);
@@ -2470,7 +2489,7 @@ void pf_alarm_send(
   pf_alarm_fixed_t  fixed;
 
   // copy dst address
-  memcpy(&p_buf[0], net->last_valid_src_eth_addr.addr, sizeof(pnet_ethaddr_t));
+  memcpy(&p_buf[0], p_dst_addr, sizeof(pnet_ethaddr_t));
 
   pos += sizeof(pnet_ethaddr_t);
 

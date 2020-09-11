@@ -1336,10 +1336,15 @@ static int pf_dcp_identify_req(
               }
               b_alias_type = 1;
             }
-            else if ((src_block_len < sizeof(net->lldp_check_peers_data.peer_port_id)) &&
-                     (strncmp(net->lldp_check_peers_data.peer_port_id,
-                              (const char *)(&p_src[src_pos]),
-                              net->lldp_check_peers_data.length_peer_port_id) == 0)
+            else if ((src_block_len < sizeof(net->lldp_check_peers_data.peer_port_id)) 
+                     &&
+                     // check short (stripped in LLDP) and large (full copy from LLDP) peer port name
+                     (   (strncmp(net->lldp_check_peers_data.peer_port_id,
+                                  (const char *)(&p_src[src_pos]),
+                                  net->lldp_check_peers_data.length_peer_port_id) == 0)
+                       || (strncmp(net->real_peer_port_id,
+                                   (const char *)(&p_src[src_pos]),
+                                   net->real_length_peer_port_id) == 0))
                      )
             {
               if (first == true)
@@ -1479,8 +1484,10 @@ static int pf_dcp_identify_req(
                            PF_DCP_SUB_DEV_PROP_ALIAS,
                            true,
                            0,
-                           net->lldp_check_peers_data.length_peer_port_id,
-                           net->lldp_check_peers_data.peer_port_id);
+                           net->real_length_peer_port_id,
+                           net->real_peer_port_id);
+//             net->lldp_check_peers_data.length_peer_port_id,
+//             net->lldp_check_peers_data.peer_port_id);
         }
 
         pf_dcp_get_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,
@@ -1549,8 +1556,8 @@ void pf_dcp_init(
   net->dcp_sam_counter = ATOMIC_VAR_INIT(0);
 
   /* Insert handlers for our specific frame_ids */
-  pf_eth_frame_id_map_add(net, PF_DCP_HELLO_FRAME_ID, pf_dcp_hello_ind, NULL);
-  pf_eth_frame_id_map_add(net, PF_DCP_GET_SET_FRAME_ID, pf_dcp_get_set, NULL);
-  pf_eth_frame_id_map_add(net, PF_DCP_ID_REQ_FRAME_ID, pf_dcp_identify_req, NULL);
+  pf_eth_frame_id_map_add(net, PF_DCP_HELLO_FRAME_ID, pf_dcp_hello_ind, NULL, false);
+  pf_eth_frame_id_map_add(net, PF_DCP_GET_SET_FRAME_ID, pf_dcp_get_set, NULL, false);
+  pf_eth_frame_id_map_add(net, PF_DCP_ID_REQ_FRAME_ID, pf_dcp_identify_req, NULL, false);
 }
 

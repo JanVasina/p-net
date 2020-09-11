@@ -31,6 +31,7 @@
 #include <string.h>
 #include "pf_includes.h"
 
+static pnet_ethaddr_t broadcast_mac = { { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }  };
 
 int pf_eth_init(
   pnet_t                  *net)
@@ -53,6 +54,22 @@ int pf_eth_recv(
   uint16_t    *p_data;
   uint16_t    ix = 0;
   pnet_t      *net = (pnet_t*)arg;
+
+  // check destination mac address
+  const pnet_cfg_t *p_cfg = NULL;
+  pf_fspm_get_default_cfg(net, &p_cfg);
+
+  pnet_ethaddr_t *p_dst_mac_addr = (pnet_ethaddr_t *)(p_buf->payload);
+  if((p_dst_mac_addr->addr[0] & 0x1) == 0x0) // not multicast?
+  {
+    if (memcmp(p_dst_mac_addr->addr, p_cfg->eth_addr.addr, sizeof(pnet_ethaddr_t)) != 0)
+    {
+      if (memcmp(p_dst_mac_addr->addr, broadcast_mac.addr, sizeof(pnet_ethaddr_t)) != 0)
+      {
+        return 0; // not handled
+      }
+    }
+  }
 
   /* Skip ALL VLAN tags */
   p_data = (uint16_t *)(&((uint8_t *)p_buf->payload)[type_pos]);
@@ -85,8 +102,9 @@ int pf_eth_recv(
     }
     break;
   case OS_ETHTYPE_LLDP:
-    /* ToDo: */
-    ret = pf_lldp_recv(net, p_buf);
+    // LLDP packet is processed, but the buffer can be reused, so return 0 as not handled
+    pf_lldp_recv(net, p_buf);
+    ret = 0;
     break;
   default:
     /* Not a profinet packet. */
@@ -101,28 +119,58 @@ void pf_eth_frame_id_map_add(
   pnet_t                  *net,
   uint16_t                frame_id,
   pf_eth_frame_handler_t  frame_handler,
-  void                    *p_arg)
+  void                    *p_arg,
+  bool                     b_replace_old)
 {
-  uint16_t                ix = 0;
+  size_t  ix = 0;
+
+  // find entry with the same frame_id and lowest time
+  uint64_t min_time = UINT64_MAX;
+  size_t   min_time_idx = NELEMENTS(net->eth_id_map);
+
 
   while ((ix < NELEMENTS(net->eth_id_map)) &&
          (net->eth_id_map[ix].in_use == true))
   {
+    if (net->eth_id_map[ix].frame_id == frame_id)
+    {
+      if (min_time < net->eth_id_map[ix].time_created)
+      {
+        min_time = net->eth_id_map[ix].time_created;
+        min_time_idx = ix;
+      }
+    }
     ix++;
+  }
+
+  if (   (b_replace_old == true)
+      && (ix >= NELEMENTS(net->eth_id_map)) 
+      && (min_time_idx < NELEMENTS(net->eth_id_map)))
+  {
+    ix = min_time_idx;
+    LOG_WARNING(PF_ETH_LOG, "ETH(%d): Replace older FrameId 0x%X in idx %u\n",
+                __LINE__,
+                frame_id,
+                ix);
   }
 
   if (ix < NELEMENTS(net->eth_id_map))
   {
-    LOG_DEBUG(PF_ETH_LOG, "ETH(%d): Add FrameIds %#x at index %u\n", __LINE__,
-              (unsigned)frame_id, (unsigned)ix);
-    net->eth_id_map[ix].frame_id = frame_id;
+    os_log(LOG_LEVEL_INFO, "ETH(%d): Add FrameIds 0x%x at index %u\n", 
+           __LINE__,
+           frame_id, 
+           ix);
+    net->eth_id_map[ix].in_use        = true;
+    net->eth_id_map[ix].frame_id      = frame_id;
     net->eth_id_map[ix].frame_handler = frame_handler;
-    net->eth_id_map[ix].p_arg = p_arg;
-    net->eth_id_map[ix].in_use = true;
+    net->eth_id_map[ix].p_arg         = p_arg;
+    net->eth_id_map[ix].time_created  = os_get_current_time_us();
   }
   else
   {
-    LOG_ERROR(PF_ETH_LOG, "ETH(%d): No more room for FrameIds\n", __LINE__);
+    LOG_ERROR(PF_ETH_LOG, "ETH(%d): No more room for FrameId 0x%X\n", 
+              __LINE__,
+              frame_id);
   }
 }
 
@@ -130,7 +178,7 @@ void pf_eth_frame_id_map_remove(
   pnet_t                  *net,
   uint16_t                frame_id)
 {
-  uint16_t                ix = 0;
+  size_t ix = 0;
 
   while ((ix < NELEMENTS(net->eth_id_map)) &&
          ((net->eth_id_map[ix].in_use == false) ||
@@ -142,7 +190,9 @@ void pf_eth_frame_id_map_remove(
   if (ix < NELEMENTS(net->eth_id_map))
   {
     net->eth_id_map[ix].in_use = false;
-    LOG_DEBUG(PF_ETH_LOG, "ETH(%d): Free room for FrameIds %#x at index %u\n", __LINE__,
-              (unsigned)frame_id, (unsigned)ix);
+    os_log(LOG_LEVEL_INFO, "ETH(%d): Free room for FrameId 0x%x at index %u\n", 
+           __LINE__,
+           (unsigned)frame_id, 
+           (unsigned)ix);
   }
 }

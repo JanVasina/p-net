@@ -227,12 +227,14 @@ void pf_alarm_show(
 // * Directly send alarm.
 // *
 // * @param net              InOut: The p-net stack instance
+// * @param p_dstaddr        In:   Destination MAC address
 // * @param p_pnio_status    In:   Detailed ACK information.
 // * @return  0  if operation succeeded.
 // *          -1 if an error occurred (or waiting for ACK from controller: re-try later).
 // */
 void pf_alarm_send(
-  pnet_t *net,
+  pnet_t             *net,
+  pnet_ethaddr_t     *p_dst_addr,
   pnet_pnio_status_t *p_pnio_status);
 
 

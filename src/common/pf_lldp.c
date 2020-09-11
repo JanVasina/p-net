@@ -62,6 +62,10 @@ static const pnet_ethaddr_t   lldp_dst_addr = {
    { 0x01, 0x80, 0xc2, 0x00, 0x00, 0x0e }       /* LLDP Multicast */
 };
 
+static const pnet_ethaddr_t   zero_mac_addr = {
+  { 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 }       
+};
+
 /**
  * @internal
  * Insert a TLV header into a buffer.
@@ -437,32 +441,23 @@ void pf_lldp_init(
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
 static int pf_lldp_parse_chassis_id(
-  pnet_t        *net,
-  pf_get_info_t *p_get_info,
-  uint16_t      *p_pos,
-  uint8_t        sub_type,
-  uint16_t       len)
+  pf_get_info_t  *p_get_info,
+  uint16_t       *p_pos,
+  char           *p_peer_chassis_id,
+  size_t          peer_chassis_id_buffer_size,
+  uint8_t        *p_peer_chassis_id_len,
+  pnet_ethaddr_t *p_lldp_chassis_mac_addr,
+  uint8_t         sub_type,
+  uint16_t        len)
 {
   switch (sub_type)
   {
   case LLDP_SUBTYPE_CHASSIS_ID_NAME:
-    if(len < sizeof(net->lldp_check_peers_data.peer_chassis_id)-1)
+    if(len < peer_chassis_id_buffer_size)
     {
-      char    peer_chassis_id[MAX_PORT_NAME_LENGTH];
-      pf_get_mem(p_get_info, p_pos, len, peer_chassis_id);
-      peer_chassis_id[len] = '\0';
-      // During the Port 2 Port test, the Automated RT Tester repeatedly changes its chassis name
-      // from "ipc" to "pn-io" and vice versa
-      // this leads to unsuccessful "Different Access Ways Port 2 Port" test and also
-      // to the Exception in the RT Tester, which then stops responding
-      // So the peer name of ipc is ignored here.
-      // Probably would be better to ignore "pn-io" peer name.
-      if(strcmp(peer_chassis_id, "ipc") != 0) // hack!
-      {
-        strcpy(net->lldp_check_peers_data.peer_chassis_id, peer_chassis_id);
-        //net->lldp_check_peers_data.peer_chassis_id[len] = '\0';
-        net->lldp_check_peers_data.length_peer_chassis_id = len;
-      }
+      pf_get_mem(p_get_info, p_pos, len, p_peer_chassis_id);
+      p_peer_chassis_id[len] = '\0';
+      *p_peer_chassis_id_len = len;
     }
     else
     {
@@ -472,7 +467,7 @@ static int pf_lldp_parse_chassis_id(
   case LLDP_SUBTYPE_CHASSIS_ID_MAC:
     if (len == sizeof(pnet_ethaddr_t))
     {
-      pf_get_mem(p_get_info, p_pos, len, &(net->lldp_peer_mac_addr));
+      pf_get_mem(p_get_info, p_pos, len, p_lldp_chassis_mac_addr);
     }
     else
     {
@@ -488,20 +483,22 @@ static int pf_lldp_parse_chassis_id(
 
 
 static int pf_lldp_parse_port_id(
-  pnet_t        *net,
   pf_get_info_t *p_get_info,
   uint16_t      *p_pos,
+  char          *p_real_peer_port_id,
+  size_t         real_peer_port_id_buffer_size,
+  uint32_t      *p_real_length_peer_port_id,
   uint8_t        sub_type,
   uint16_t       len)
 {
   switch (sub_type)
   {
   case LLDP_SUBTYPE_PORT_ID_LOCAL:
-    if (len < sizeof(net->lldp_check_peers_data.peer_port_id) - 1)
+    if (len < real_peer_port_id_buffer_size)
     {
-      pf_get_mem(p_get_info, p_pos, len, net->lldp_check_peers_data.peer_port_id);
-      net->lldp_check_peers_data.peer_port_id[len] = '\0';
-      net->lldp_check_peers_data.length_peer_port_id = len;
+      pf_get_mem(p_get_info, p_pos, len, p_real_peer_port_id);
+      p_real_peer_port_id[len] = '\0';
+      *p_real_length_peer_port_id = len;
     }
     else
     {
@@ -516,10 +513,11 @@ static int pf_lldp_parse_port_id(
   return p_get_info->result == PF_PARSE_OK ? 0 : -1;
 }
 
+
 static int pf_lldp_parse_org_specific(
-  pnet_t        *net,
   pf_get_info_t *p_get_info,
   uint16_t      *p_pos,
+  pnet_ethaddr_t * p_lldp_chassis_mac_addr,
   uint8_t        sub_type,
   uint16_t       len)
 {
@@ -539,7 +537,7 @@ static int pf_lldp_parse_org_specific(
   case LLDP_PNIO_SUBTYPE_INTERFACE_MAC:
     if (len == sizeof(pnet_ethaddr_t))
     {
-      pf_get_mem(p_get_info, p_pos, len, &(net->lldp_peer_mac_addr));
+      pf_get_mem(p_get_info, p_pos, len, p_lldp_chassis_mac_addr);
     }
     else
     {
@@ -553,21 +551,43 @@ static int pf_lldp_parse_org_specific(
   return p_get_info->result == PF_PARSE_OK ? 0 : -1;
 }
 
-// handle lldp receive packets
-int pf_lldp_recv(
+// compare mac addressed, first 5 bytes only
+static bool mac_addresses_are_almost_same(pnet_ethaddr_t *addr1,
+                                          pnet_ethaddr_t *addr2)
+{
+  return memcmp(addr1, addr2, sizeof(pnet_ethaddr_t) - 1) == 0 ? true : false;
+}
+
+// handle LLDP receive packets
+///////////////////////////////////////////////////////////////////////////
+void pf_lldp_recv(
   pnet_t                  *net,
   os_buf_t                *p_buf)
 {
   int ret      = 0;
-  uint16_t pos = 2 * sizeof(pnet_ethaddr_t) + sizeof(uint16_t);
   pf_get_info_t get_info;
   bool b_got_chassis_id = false;
   bool b_got_port_id = false;
+  pnet_ethaddr_t lldp_chassis_mac_addr_1 = { { 0 } };
+  pnet_ethaddr_t lldp_chassis_mac_addr_2 = { { 0 } };
+
+  char     real_peer_port_id[MAX_PORT_NAME_LENGTH] = { 0 };
+  uint32_t real_length_peer_port_id = 0;
+  char     peer_chassis_id[MAX_PORT_NAME_LENGTH] = { 0 };
+  uint8_t  length_peer_chassis_id = 0;
 
   get_info.result = PF_PARSE_OK;
   get_info.is_big_endian = true;
   get_info.p_buf = (uint8_t *)p_buf->payload;
   get_info.len = p_buf->len;
+
+  // read source MAC
+  pnet_ethaddr_t packet_src_mac_addr;
+  uint16_t pos = sizeof(pnet_ethaddr_t);
+  pf_get_mem(&get_info, &pos, sizeof(packet_src_mac_addr), &packet_src_mac_addr);
+
+  // start reading after dst mac, src mac and IP type (16 bytes)
+  pos = 2 * sizeof(pnet_ethaddr_t) + sizeof(uint16_t);
 
   while ((get_info.result == PF_PARSE_OK) && (ret == 0) && (pos < p_buf->len))
   {
@@ -578,15 +598,32 @@ int pf_lldp_recv(
     switch (type)
     {
     case LLDP_TYPE_CHASSIS_ID:
-      ret = pf_lldp_parse_chassis_id(net, &get_info, &pos, sub_type, len);
+      ret = pf_lldp_parse_chassis_id(&get_info, 
+                                     &pos, 
+                                     peer_chassis_id,
+                                     sizeof(peer_chassis_id) - 1,
+                                     &length_peer_chassis_id,
+                                     &lldp_chassis_mac_addr_2,
+                                     sub_type, 
+                                     len);
       b_got_chassis_id = true;
       break;
     case LLDP_TYPE_PORT_ID:
-      ret = pf_lldp_parse_port_id(net, &get_info, &pos, sub_type, len);
+      ret = pf_lldp_parse_port_id(&get_info, 
+                                  &pos, 
+                                  real_peer_port_id,
+                                  sizeof(real_peer_port_id) - 1,
+                                  &real_length_peer_port_id,
+                                  sub_type, 
+                                  len);
       b_got_port_id = true;
       break;
     case LLDP_TYPE_ORG_SPEC:
-      ret = pf_lldp_parse_org_specific(net, &get_info, &pos, sub_type, len);
+      ret = pf_lldp_parse_org_specific(&get_info, 
+                                       &pos, 
+                                       &lldp_chassis_mac_addr_1, 
+                                       sub_type, 
+                                       len);
       break;
     case LLDP_TYPE_END:
       ret = 1;
@@ -597,8 +634,55 @@ int pf_lldp_recv(
     }
   }
 
+  // check packet src mac with mac addresses inside LLDP packet (first 5 bytes only)
+  if (   !mac_addresses_are_almost_same(&packet_src_mac_addr, &lldp_chassis_mac_addr_1)
+      && !mac_addresses_are_almost_same(&packet_src_mac_addr, &lldp_chassis_mac_addr_2))
+  {
+    LOG_INFO(PF_ETH_LOG,
+             "LLDP(%d): packet src mac address is not the same as lldp value, ignoring\n",
+             __LINE__);
+
+    return;  // foreign packet
+  }
+
+  if (memcmp(&lldp_chassis_mac_addr_1, &zero_mac_addr, sizeof(lldp_chassis_mac_addr_1)) != 0)
+  {
+    net->lldp_peer_mac_addr = lldp_chassis_mac_addr_1;
+  }
+  else if (memcmp(&lldp_chassis_mac_addr_1, &zero_mac_addr, sizeof(lldp_chassis_mac_addr_2)) != 0)
+  {
+    net->lldp_peer_mac_addr = lldp_chassis_mac_addr_2;
+  }
+
+
   if((b_got_chassis_id == true) || (b_got_port_id == true))
   {
+    if(b_got_chassis_id && (length_peer_chassis_id != 0))
+    {
+      //if (strcmp(peer_chassis_id, "pn-io") != 0) // hack - do not use pn-io name (Automated RT Tester own LLDP name)
+      if (strcmp(peer_chassis_id, "ipc") != 0) // hack - do not use ipc name (Automated RT Tester own LLDP name)
+      {
+        strcpy(net->lldp_check_peers_data.peer_chassis_id, peer_chassis_id);
+        net->lldp_check_peers_data.length_peer_chassis_id = length_peer_chassis_id;
+      }
+    }
+
+    if(b_got_port_id && (real_length_peer_port_id != 0))
+    {
+      strcpy(net->real_peer_port_id, real_peer_port_id);
+      net->real_length_peer_port_id = real_length_peer_port_id;
+
+      if (real_length_peer_port_id > 8 && strncmp(real_peer_port_id, "port-", 5) == 0) // hack - copy only port-xxx part of name
+      {
+        real_length_peer_port_id = 8;
+      }
+      strncpy(net->lldp_check_peers_data.peer_port_id, real_peer_port_id, real_length_peer_port_id);
+      net->lldp_check_peers_data.peer_port_id[real_length_peer_port_id] = '\0';
+      net->lldp_check_peers_data.length_peer_port_id = real_length_peer_port_id;
+    }
+
+
+
     net->lldp_check_peers_data.number_of_peers = 1; // always one peer - we have only one port
     net->last_valid_lldp_message_time = os_get_current_time_us();
 
@@ -617,13 +701,14 @@ int pf_lldp_recv(
         }
       }
 
-      LOG_INFO(PF_ETH_LOG,
+      LOG_WARNING(PF_ETH_LOG,
                "LLDP(%d): Check peers data changed:\nOLD chassis: %s port: %s\nNEW chassis: %s port: %s\n",
                __LINE__,
                net->previous_lldp_check_peers_data.peer_chassis_id,
                net->previous_lldp_check_peers_data.peer_port_id,
                net->lldp_check_peers_data.peer_chassis_id,
-               net->lldp_check_peers_data.peer_port_id);
+               net->real_peer_port_id);
+               // net->lldp_check_peers_data.peer_port_id);
 
       net->previous_lldp_check_peers_data = net->lldp_check_peers_data;
     }
@@ -631,9 +716,8 @@ int pf_lldp_recv(
     // create an alias name for later use in DCP
     net->length_alias_name = snprintf(net->alias_name,
                                       sizeof(net->alias_name),
-                                      "%s%c%s",
-                                      net->lldp_check_peers_data.peer_port_id,
-                                      '.',
+                                      "%s.%s",
+                                      net->real_peer_port_id,
                                       net->lldp_check_peers_data.peer_chassis_id);
 
     LOG_DEBUG(PF_ETH_LOG,
@@ -642,6 +726,4 @@ int pf_lldp_recv(
               net->lldp_check_peers_data.peer_chassis_id,
               net->lldp_check_peers_data.peer_port_id);
   }
-
-  return 1; // means "handled"
 }

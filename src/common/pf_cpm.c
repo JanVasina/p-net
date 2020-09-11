@@ -71,7 +71,7 @@ void pf_cpm_init(
  * @param state            In:   The new CPM state.
  */
 static void pf_cpm_set_state(
-  pf_cpm_t *p_cpm,
+  pf_cpm_t               *p_cpm,
   pf_cpm_state_values_t   state)
 {
   if (state != p_cpm->state)
@@ -90,8 +90,8 @@ static void pf_cpm_set_state(
  * @param start            In:   Start/Stop indicator
  */
 static void pf_cpm_state_ind(
-  pnet_t *net,
-  pf_ar_t *p_ar,
+  pnet_t                 *net,
+  pf_ar_t                *p_ar,
   uint32_t                crep,
   bool                    start)
 {
@@ -132,7 +132,6 @@ static void pf_cpm_control_interval_expired(
       {
         /* dht expired */
         LOG_WARNING(PF_CPM_LOG, "CPM(%i): dht expired\n", __LINE__);
-        //p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CMI_TIMEOUT;
         p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CONSUMER_DHT_EXPIRED;
 
         p_iocr->cpm.dht = 0;
@@ -217,9 +216,9 @@ int pf_cpm_create(
 }
 
 int pf_cpm_close_req(
-  pnet_t *net,
-  pf_ar_t *p_ar,
-  uint32_t                crep)
+  pnet_t    *net,
+  pf_ar_t   *p_ar,
+  uint32_t   crep)
 {
   pf_cpm_t *p_cpm = &p_ar->iocrs[crep].cpm;
   uint32_t                cnt;
@@ -426,8 +425,8 @@ static int pf_cpm_c_data_ind(
     {
       p_iocr->p_ar->err_cls = PNET_ERROR_CODE_1_CPM;
       p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_CPM_INVALID_STATE;
-
-      LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_iocr->p_ar->err_code);
+// 
+//       LOG_ERROR(PNET_LOG, "%s(%i) err_code %d\n", __FILE__, __LINE__, p_iocr->p_ar->err_code);
     }
 
     p_cpm->errline = __LINE__;
@@ -581,12 +580,14 @@ int pf_cpm_activate_req(
     p_cpm->nbr_frame_id = 1;   /* ToDo: For now. More for RTC_3 */
 
     p_cpm->frame_id[0] = p_iocr->param.frame_id;
-    pf_eth_frame_id_map_add(net, p_cpm->frame_id[0], pf_cpm_c_data_ind, p_iocr);
+    net->iocr_frame_id[0] = p_iocr->param.frame_id;
+    pf_eth_frame_id_map_add(net, p_cpm->frame_id[0], pf_cpm_c_data_ind, p_iocr, false);
 
     if (p_cpm->nbr_frame_id == 2) // -V547
     {
       p_cpm->frame_id[1] = p_cpm->frame_id[0] + 1;
-      pf_eth_frame_id_map_add(net, p_cpm->frame_id[1], pf_cpm_c_data_ind, p_iocr);
+      net->iocr_frame_id[1] = p_cpm->frame_id[0] + 1;
+      pf_eth_frame_id_map_add(net, p_cpm->frame_id[1], pf_cpm_c_data_ind, p_iocr, false);
     }
 
     /* ToDo: Shall be aligned with local send clock or PTCP (Does it matter for RTClass1/2?) */
@@ -636,13 +637,13 @@ int pf_cpm_activate_req(
  *          -1 If the information was not found.
  */
 static int pf_cpm_get_ar_iocr_desc(
-  pnet_t *net,
+  pnet_t                 *net,
   uint32_t                api_id,
   uint16_t                slot_nbr,
   uint16_t                subslot_nbr,
-  pf_ar_t **pp_ar,
-  pf_iocr_t **pp_iocr,
-  pf_iodata_object_t **pp_iodata)
+  pf_ar_t               **pp_ar,
+  pf_iocr_t             **pp_iocr,
+  pf_iodata_object_t    **pp_iodata)
 {
   int                     ret = -1;
   uint32_t                crep;
