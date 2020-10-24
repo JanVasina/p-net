@@ -28,15 +28,14 @@ extern "C"
 
 #include "osal_sys.h"
 #include "cc.h"
-#include "rpmalloc.h"
 #include "pnet_api.h"
 #include "pf_types.h"
 
 // priorities
 #define LLDP_PRIO      0
-#define TIMER_PRIO     5
-#define ETH_PRIO      10
-#define APP_PRIO      15
+#define ETH_PRIO      11
+#define APP_PRIO      12
+#define TIMER_PRIO    13
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b)) ? (a) : (b)
@@ -139,7 +138,8 @@ void * os_malloc (size_t size);
 void os_free(void *ptr);
 
 void os_usleep (uint32_t us);
-uint64_t os_get_current_time_us (void);
+uint64_t os_get_current_time_us(void);
+uint64_t os_get_current_time_ns(void);
 void os_get_current_timestamp(pf_log_book_ts_t *p_ts);
 
 os_thread_t * os_thread_create (const char * name, int priority,
@@ -162,9 +162,10 @@ void os_event_clr (os_event_t * event, uint32_t value);
 void os_event_destroy (os_event_t * event);
 
 os_mbox_t * os_mbox_create (size_t size);
-int os_mbox_fetch (os_mbox_t * mbox, void ** msg, uint32_t time_us);
-int os_mbox_post (os_mbox_t * mbox, void * msg, uint32_t time_us);
-void os_mbox_destroy (os_mbox_t * mbox);
+int os_mbox_fetch(os_mbox_t * mbox, void ** msg);
+int os_mbox_post(os_mbox_t * mbox, void * msg);
+bool os_mbox_is_full(os_mbox_t * mbox);
+void os_mbox_destroy(os_mbox_t * mbox);
 
 os_timer_t * os_timer_create (uint32_t us, void (*fn) (os_timer_t * timer, void * arg),
                               void * arg, bool oneshot);
@@ -173,8 +174,21 @@ void os_timer_start (os_timer_t * timer);
 void os_timer_stop (os_timer_t * timer);
 void os_timer_destroy (os_timer_t * timer);
 
+#ifdef _DEBUG
+os_buf_t * os_buf_alloc_dbg(uint32_t length, const char *file, int line);
+os_buf_t *os_buf_alloc_with_wait_dbg(uint32_t length, const char *file, int line);
+void os_buf_free_dbg(os_buf_t *p, const char *file, int line);
+
+#define os_buf_alloc(a) os_buf_alloc_dbg(a,__FILE__,__LINE__)
+#define os_buf_alloc_with_wait(a) os_buf_alloc_with_wait_dbg(a,__FILE__,__LINE__)
+#define os_buf_free(a)  os_buf_free_dbg(a,__FILE__,__LINE__)
+
+#else
 os_buf_t * os_buf_alloc(uint32_t length);
+os_buf_t *os_buf_alloc_with_wait(uint32_t length);
 void os_buf_free(os_buf_t *p);
+#endif // _DEBUG
+
 uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment);
 
 /**

@@ -68,6 +68,16 @@ typedef uint16_t os_ipport_t;
 
 #define PF_MAX_UDP_PAYLOAD_SIZE           1440
 #define PF_LLDP_TIMEOUT                   10000000ULL // = 10s in us
+#define DHT_ADJUST_INIT                  -2
+#define DHT_ADJUST_RELAX                  1
+
+#define PF_ALARM_TIME_SLICE_ns            1000000     // = 1ms in ns
+
+// DCP frame identifiers
+#define PF_DCP_HELLO_FRAME_ID                   0xfefc
+#define PF_DCP_GET_SET_FRAME_ID                 0xfefd
+#define PF_DCP_ID_REQ_FRAME_ID                  0xfefe
+#define PF_DCP_ID_RES_FRAME_ID                  0xfeff
 
 /*********************** RPC header ******************************************/
 
@@ -1332,7 +1342,6 @@ typedef struct pf_cpm
 
    uint16_t                nbr_frame_id;        /* 1 or 2 */
    uint16_t                frame_id[2];         /* 2 needed for some instances of RT_CLASS_3 */
-   uint16_t                data_hold_factor;
 
    void                    *p_buffer_app;       /* Owned by app */
    void                    *p_buffer_cpm;       /* owned by cpm */
@@ -1343,14 +1352,18 @@ typedef struct pf_cpm
    uint16_t                buffer_length;
    uint16_t                buffer_pos;          /* Start of PROFINET data in frame */
 
-   uint16_t                dht;
+   // ordered by cache access
+   atomic_uint             dht;
+   uint32_t                data_hold_factor;
+   uint64_t                dht_init_timestamp;
+
    bool                    new_data;
    uint32_t                rxa[PNET_MAX_PORT][2];  /* Max 2 frame_ids */
    int32_t                 cycle;               /* value -1 means "never" */
 
    uint32_t                control_interval;
-   bool                    ci_running;
    uint32_t                ci_timer;
+   bool                    ci_running;
 
    /* CMIO data */
    bool                    cmio_start;         /* cmInstance.start/stop */
@@ -2078,6 +2091,7 @@ struct pnet
    char                                alias_name[ALIAS_NAME_SIZE];
    bool                                remote_peers_check_locked;
    uint16_t                            iocr_frame_id[2];         /* 2 needed for some instances of RT_CLASS_3 */
+   int32_t                             dht_adjust;
 };
 
 // useful null UUID for memcmp()
