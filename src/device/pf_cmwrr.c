@@ -195,13 +195,13 @@ static int pf_write_pd_port_data_check(
     {
       pf_ppm_set_problem_indicator(p_ar, true);
 
-      LOG_WARNING(PNET_LOG,
-                  "Invalid check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n",
-                  p_dst_peers->number_of_peers,
-                  p_dst_peers->length_peer_port_id,
-                  p_dst_peers->peer_port_id,
-                  p_dst_peers->length_peer_chassis_id,
-                  p_dst_peers->peer_chassis_id);
+      LOG_INFO(PNET_LOG,
+               "Invalid check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n",
+               p_dst_peers->number_of_peers,
+               p_dst_peers->length_peer_port_id,
+               p_dst_peers->peer_port_id,
+               p_dst_peers->length_peer_chassis_id,
+               p_dst_peers->peer_chassis_id);
 
     }
 

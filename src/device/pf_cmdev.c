@@ -2350,11 +2350,11 @@ static int pf_cmdev_check_iocr_apis(
  *          -1 if an error was found.
  */
 static int pf_cmdev_check_iocr_param(
-  pf_ar_t *p_ar,
-  pnet_result_t *p_stat)
+  pf_ar_t         *p_ar,
+  pnet_result_t   *p_stat)
 {
-  int                     ret = 0;       /* OK until error found */
-  uint16_t                ix;
+  int              ret = 0;       /* OK until error found */
+  uint16_t         ix;
   pf_iocr_param_t *p_iocr;
 
   for (ix = 0; ix < p_ar->nbr_iocrs; ix++)

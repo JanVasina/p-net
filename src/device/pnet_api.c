@@ -56,6 +56,7 @@ pnet_t* pnet_init(
   net->temp_check_peers_data = p_cfg->temp_check_peers_data;
   net->adjust_peer_to_peer_boundary = p_cfg->adjust_peer_to_peer_boundary;
   net->last_valid_lldp_message_time = 0;
+  net->dht_adjust = DHT_ADJUST_INIT;
 
   pf_cmsu_init(net);
   pf_cmwrr_init(net);

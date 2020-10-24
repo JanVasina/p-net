@@ -229,7 +229,6 @@ int pf_cmio_cpm_state_ind(
   bool                    start)
 {
   int                     ret = 0;
-  pnet_pnio_status_t      pnio_status;
 
   switch (p_ar->cmio_state)
   {
@@ -239,11 +238,6 @@ int pf_cmio_cpm_state_ind(
   case PF_CMIO_STATE_STARTUP:
     if (start == false)
     {
-      pnio_status.error_code = PNET_ERROR_CODE_RTA_ERROR;
-      pnio_status.error_decode = PNET_ERROR_CODE_PNIO;
-      pnio_status.error_code_1 = PNET_ERROR_CODE_1_RTA_ERR_CLS_PROTOCOL;
-      pnio_status.error_code_2 = PNET_ERROR_CODE_2_ABORT_AR_CONSUMER_DHT_EXPIRED;
-      pf_alarm_send(net, &(net->last_valid_src_eth_addr), &pnio_status);
       (void)pf_cmdev_cm_abort(net, p_ar);
     }
     break;

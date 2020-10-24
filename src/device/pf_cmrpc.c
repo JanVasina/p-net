@@ -3253,13 +3253,22 @@ void pf_cmrpc_periodic(
     {
       net->syslog_frame[sizeof(net->syslog_frame) - 1] = '\0';
     }
-    if((strstr((char *)(net->syslog_frame), "error") != NULL) || (strstr((char *)(net->syslog_frame), "Error") != NULL))
+    const char *frame_text = (const char *)(net->syslog_frame);
+    if((strstr(frame_text, "error") != NULL) || (strstr(frame_text, "Error") != NULL))
     {
-      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_YELLOW "%s" ANSI_COLOR_RESET" \n", (char *)(net->syslog_frame));
+      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_YELLOW "%s" ANSI_COLOR_RESET" \n", frame_text);
     }
     else
     {
-      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET" \n", (char *)(net->syslog_frame));
+      os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET" \n", frame_text);
+    }
+    if (strstr(frame_text, "End of") != NULL)
+    {
+      net->dht_adjust = DHT_ADJUST_INIT;
+    }
+    else
+    {
+      net->dht_adjust = DHT_ADJUST_RELAX;
     }
   }
 }
