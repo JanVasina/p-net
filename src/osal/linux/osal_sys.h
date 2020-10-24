@@ -53,7 +53,6 @@ typedef struct os_event
 
 typedef struct os_mbox
 {
-  pthread_cond_t cond;
   pthread_mutex_t mutex;
   size_t r;
   size_t w;
@@ -76,8 +75,18 @@ typedef struct os_timer
 
 typedef struct os_buf
 {
-  void * payload;
+  void     *payload;
   uint32_t len;
+  uint32_t  memory_type;
+  uint32_t *ptr_to_memory_type;
+  uint32_t  idx_to_static_buf;
+#ifdef _DEBUG
+  const char *m_p_alloc_file;
+  int         m_alloc_line;
+  const char *m_p_free_file;
+  int         m_free_line;
+  int         m_free_count;
+#endif
 } os_buf_t;
 
 /**

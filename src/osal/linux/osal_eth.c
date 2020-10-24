@@ -47,21 +47,12 @@ static void *os_eth_pf_task(void *thread_arg)
   ssize_t          readlen;
   int              handled = 0;
 
-  rpmalloc_thread_initialize();
   eth_handle->n_bytes_recv = 0;
   eth_handle->n_bytes_sent = 0;
-  os_buf_t *p = os_buf_alloc(OS_BUF_MAX_SIZE);
-  assert(p != NULL);
+  os_buf_t *p = os_buf_alloc_with_wait(OS_BUF_MAX_SIZE);
 
   while (p_appdata->running != false)
   {
-//     unsigned long nBytes = 0;
-//     ioctl(eth_handle->socket, FIONREAD, &nBytes);
-//     if (nBytes == 0)
-//     {
-//       os_usleep(200);
-//       continue;
-//     }
     readlen = recv(eth_handle->pf_socket, p->payload, OS_BUF_MAX_SIZE, 0);
     if (readlen == -1)
     {
@@ -82,15 +73,11 @@ static void *os_eth_pf_task(void *thread_arg)
 
     if (handled == 1)
     {
-      p = os_buf_alloc(OS_BUF_MAX_SIZE);
-      assert(p != NULL);
+      p = os_buf_alloc_with_wait(OS_BUF_MAX_SIZE);
     }
   }
-  if(p_appdata->arguments.verbosity > 0)
-  {
-    os_log(LOG_LEVEL_INFO, "os_eth_task terminated\n");
-  }
-  rpmalloc_thread_finalize();
+
+  os_log(LOG_LEVEL_INFO, "os_eth_task terminated\n");
   os_mutex_destroy(eth_handle->mutex);
   os_free(eth_handle);
   return NULL;
@@ -114,8 +101,7 @@ static void *os_eth_lldp_task(void *thread_arg)
   ssize_t          readlen;
   int              handled = 0;
 
-  rpmalloc_thread_initialize();
-  os_buf_t *p = os_buf_alloc(OS_BUF_MAX_SIZE);
+  os_buf_t *p = os_buf_alloc_with_wait(OS_BUF_MAX_SIZE);
   assert(p != NULL);
 
   while (p_appdata->running != false)
@@ -139,15 +125,11 @@ static void *os_eth_lldp_task(void *thread_arg)
 
     if (handled == 1)
     {
-      p = os_buf_alloc(OS_BUF_MAX_SIZE);
+      p = os_buf_alloc_with_wait(OS_BUF_MAX_SIZE);
       assert(p != NULL);
     }
   }
-  if(p_appdata->arguments.verbosity > 0)
-  {
-    os_log(LOG_LEVEL_INFO, "os_lldp_task terminated\n");
-  }
-  rpmalloc_thread_finalize();
+  os_log(LOG_LEVEL_INFO, "os_lldp_task terminated\n");
   os_mutex_destroy(eth_handle->mutex);
   os_free(eth_handle);
   return NULL;

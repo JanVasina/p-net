@@ -38,10 +38,10 @@
 #include "osal.h"
 #include "plc_memory.h"
 
-// #define USE_RPMALLOC
-
-#define MAX_STATIC_BUFS 10
-#define BUF_SIZE        (2048 - sizeof(uint32_t))
+#define MEMORY_TYPE_FREE          0x0
+#define MEMORY_TYPE_STATIC_SEND   0x1
+#define MEMORY_TYPE_STATIC_RECV   0x2
+#define MEMORY_TYPE_MALLOC        0x4
 
 #define USECS_PER_SEC     (1 * 1000 * 1000)
 #define NSECS_PER_SEC     (1 * 1000 * 1000 * 1000)
@@ -57,13 +57,23 @@ static void set_ip_address_to_interface(app_data_t *p_appdata, uint32_t ipaddr);
 // 
 static os_mutex_t *log_mutex;
 static os_mutex_t *pbuf_mutex;
-typedef struct pbuf
-{
-  uint32_t in_use;
-  uint8_t  data[BUF_SIZE];
-} pbuf_t;
 
-static pbuf_t bufs[MAX_STATIC_BUFS];
+#define BUF_SIZE        2048
+
+#define MAX_SEND_BUFS   16
+static uint32_t send_memory_types[MAX_SEND_BUFS];  // MEMORY_TYPE_xxx
+static os_buf_t bufs_send[MAX_SEND_BUFS];
+static uint8_t  data_send[MAX_SEND_BUFS][BUF_SIZE]; //packet data
+
+
+// values are ordered by possible cache access
+#define MAX_RECV_BUFS   256
+static atomic_uint nRecvBuffersAllocated;
+static uint32_t last_freed_recv_buf_idx;
+static uint32_t recv_memory_types[MAX_RECV_BUFS];   // MEMORY_TYPE_xxx
+static os_buf_t bufs_recv[MAX_RECV_BUFS];           // buffers to be returned by osal
+static uint8_t  data_recv[MAX_RECV_BUFS][BUF_SIZE]; //packet data
+
 
 void os_log(int type, const char *fmt, ...)
 {
@@ -74,7 +84,6 @@ void os_log(int type, const char *fmt, ...)
   time_t rawtime;
   struct tm *timestruct;
 
-  os_mutex_lock(log_mutex);
   time(&rawtime);
   timestruct = localtime(&rawtime);
   strftime(timestamp, sizeof(timestamp), "%H:%M:%S", timestruct);
@@ -104,16 +113,17 @@ void os_log(int type, const char *fmt, ...)
   info_len = vsnprintf(info, sizeof(info)-1, fmt, list);
   va_end(list);
 
+  os_mutex_lock(log_mutex);
   fputs(time_info, stdout);
   if(info_len > 0)
   {
     fputs(info, stdout);
   }
   fflush(stdout);
+  os_mutex_unlock(log_mutex);
 
   if(log_to_file)
   {
-    bool b_flush = false;
     FILE *fp = fopen(LOG_FILE_NAME, "at");
     if (fp != NULL)
     {
@@ -128,11 +138,9 @@ void os_log(int type, const char *fmt, ...)
         break;
       case LOG_LEVEL_WARNING:
         time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [WARN ] ", timestamp);
-        b_flush = true;
         break;
       case LOG_LEVEL_ERROR:
         time_info_len = snprintf(time_info, sizeof(time_info) - 1, "%s [ERROR] ", timestamp);
-        b_flush = true;
         break;
       default:
         time_info[0] = '\0';
@@ -148,20 +156,14 @@ void os_log(int type, const char *fmt, ...)
         fwrite(info, info_len, 1, fp);
       }
       fclose(fp);
-      if(b_flush == true)
-      {
-        system("sync");
-      }
     }
   }
-
-  os_mutex_unlock(log_mutex);
 }
 
 void os_init(void *arg)
 {
   app_data_t *p_appdata = (app_data_t *)arg;
-  rpmalloc_initialize();
+
   if (p_appdata->arguments.use_led != 0)
   {
     int i2c_file = open_led();
@@ -171,7 +173,34 @@ void os_init(void *arg)
     }
     p_appdata->i2c_file = i2c_file;
   }
-  memset(bufs, 0, sizeof(bufs));
+
+  memset(bufs_send, 0, sizeof(bufs_send));
+  memset(send_memory_types, 0, sizeof(send_memory_types));
+  memset(data_send, 0, sizeof(data_send));
+
+  memset(bufs_recv, 0, sizeof(bufs_recv));
+  memset(recv_memory_types, 0, sizeof(send_memory_types));
+  memset(data_recv, 0, sizeof(data_recv));
+
+  size_t i;
+  for (i = 0; i < NELEMENTS(bufs_send); i++)
+  {
+    bufs_send[i].payload = data_send[i];
+    bufs_send[i].ptr_to_memory_type = &(send_memory_types[i]);
+    // caching is not used for send buffers
+    bufs_send[i].idx_to_static_buf = UINT32_MAX;
+  }
+  for (i = 0; i < NELEMENTS(bufs_recv); i++)
+  {
+    bufs_recv[i].payload = data_recv[i];
+    bufs_recv[i].ptr_to_memory_type = &(recv_memory_types[i]);
+    // index used for caching
+    bufs_recv[i].idx_to_static_buf = i;
+  }
+
+  last_freed_recv_buf_idx = 0;
+  nRecvBuffersAllocated = ATOMIC_VAR_INIT(0);
+
   log_mutex = os_mutex_create();
   pbuf_mutex = os_mutex_create();
 }
@@ -190,16 +219,11 @@ void os_exit(void *arg)
   log_mutex = NULL;
   os_mutex_destroy(pbuf_mutex);
   pbuf_mutex = NULL;
-  rpmalloc_finalize();
 }
 
 void *os_malloc(size_t size)
 {
-#ifdef USE_RPMALLOC
-  void *ptr = rpmalloc(size);
-#else
   void *ptr = malloc(size);
-#endif // USE_RPMALLOC
   if(ptr == NULL)
   {
     os_log(LOG_LEVEL_ERROR,
@@ -212,11 +236,7 @@ void *os_malloc(size_t size)
 
 void os_free(void *ptr)
 {
-#ifdef USE_RPMALLOC
-  rpfree(ptr);
-#else
   free(ptr);
-#endif
 }
 
 os_thread_t *os_thread_create(const char *name, int priority,
@@ -393,6 +413,14 @@ uint64_t os_get_current_time_us(void)
   return (uint64_t)(ts.tv_sec) * 1000ll * 1000ll + (uint64_t)(ts.tv_nsec / 1000);
 }
 
+uint64_t os_get_current_time_ns(void)
+{
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)(ts.tv_sec) * (1000ll * 1000ll * 1000ll) + (uint64_t)(ts.tv_nsec);
+}
+
 void os_get_current_timestamp(pf_log_book_ts_t *p_ts)
 {
   struct timespec ts;
@@ -496,7 +524,6 @@ os_mbox_t *os_mbox_create(size_t size)
 
   mbox = (os_mbox_t *)os_malloc(sizeof(*mbox) + (size * sizeof(void *)));
 
-  pthread_cond_init(&mbox->cond, NULL);
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
   pthread_mutex_init(&mbox->mutex, &attr);
@@ -509,139 +536,83 @@ os_mbox_t *os_mbox_create(size_t size)
   return mbox;
 }
 
-int os_mbox_fetch(os_mbox_t *mbox, void **msg, uint32_t time_us)
+int os_mbox_fetch(os_mbox_t *mbox, void **msg)
 {
   if (mbox == NULL)
   {
     return 1; // error
   }
 
-  struct timespec ts;
-  int error = 0;
-
-  if (time_us != OS_WAIT_FOREVER)
-  {
-    uint64_t nsec = (uint64_t)time_us * 1000ULL;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    nsec += ts.tv_nsec;
-
-    ts.tv_sec += nsec / NSECS_PER_SEC;
-    ts.tv_nsec = nsec % NSECS_PER_SEC;
-  }
-
   pthread_mutex_lock(&mbox->mutex);
 
-  while (mbox->count == 0)
+  if (mbox->count == 0)
   {
-    if (time_us != OS_WAIT_FOREVER)
-    {
-      error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
-#ifdef _DEBUG
-      assert(error != EINVAL);
-#endif // _DEBUG
-      if (error)
-      {
-        goto timeout;
-      }
-    }
-    else
-    {
-      error = pthread_cond_wait(&mbox->cond, &mbox->mutex);
-#ifdef _DEBUG
-      assert(error != EINVAL);
-#endif // _DEBUG
-    }
+    pthread_mutex_unlock(&mbox->mutex);
+    return 1; // error
   }
 
   *msg = mbox->msg[mbox->r++];
   if (mbox->r == mbox->size)
+  {
     mbox->r = 0;
+  }
 
   mbox->count--;
 
-timeout:
   pthread_mutex_unlock(&mbox->mutex);
-  pthread_cond_signal(&mbox->cond);
-
-  if (error)
-  {
-    return 1;
-  }
-  else 
-  {
-    return 0;
-  }
+  return 0;
 }
 
-int os_mbox_post(os_mbox_t *mbox, void *msg, uint32_t time_us)
+int os_mbox_post(os_mbox_t *mbox, void *msg)
 {
   if (mbox == NULL)
   {
     return 1; // error
   }
 
-  struct timespec ts;
-  int error = 0;
-
-  if (time_us != OS_WAIT_FOREVER)
-  {
-    uint64_t nsec = (uint64_t)time_us * 1000ULL;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    nsec += ts.tv_nsec;
-
-    ts.tv_sec += nsec / NSECS_PER_SEC;
-    ts.tv_nsec = nsec % NSECS_PER_SEC;
-  }
-
   pthread_mutex_lock(&mbox->mutex);
 
-  while (mbox->count == mbox->size)
+  if (mbox->count == mbox->size)
   {
-    if (time_us != OS_WAIT_FOREVER)
-    {
-      error = pthread_cond_timedwait(&mbox->cond, &mbox->mutex, &ts);
-#ifdef _DEBUG
-      assert(error != EINVAL);
-#endif // _DEBUG
-      if (error)
-      {
-        goto timeout;
-      }
-    }
-    else
-    {
-      error = pthread_cond_wait(&mbox->cond, &mbox->mutex);
-#ifdef _DEBUG
-      assert(error != EINVAL);
-#endif // _DEBUG
-    }
+    pthread_mutex_unlock(&mbox->mutex);
+    return 1;
   }
 
   mbox->msg[mbox->w++] = msg;
   if (mbox->w == mbox->size)
+  {
     mbox->w = 0;
+  }
 
   mbox->count++;
 
-timeout:
   pthread_mutex_unlock(&mbox->mutex);
-  pthread_cond_signal(&mbox->cond);
+  return 0;
+}
 
-  if (error)
+bool os_mbox_is_full(os_mbox_t * mbox)
+{
+  if (mbox == NULL)
   {
-    return 1;
+    return true;
   }
-  else
+
+  bool b_is_full = false;
+
+  pthread_mutex_lock(&mbox->mutex);
+  if (mbox->count == mbox->size)
   {
-    return 0;
+    b_is_full = true;
   }
+  pthread_mutex_unlock(&mbox->mutex);
+
+  return b_is_full;
 }
 
 void os_mbox_destroy(os_mbox_t *mbox)
 {
   if(mbox != NULL)
   {
-    pthread_cond_destroy(&mbox->cond);
     pthread_mutex_destroy(&mbox->mutex);
     os_free(mbox);
   }
@@ -655,8 +626,6 @@ static void *os_timer_thread(void *arg)
   sigset_t sigset;
   siginfo_t si;
   struct timespec tmo;
-
-  rpmalloc_thread_initialize();
 
   timer->thread_id = (pid_t)syscall(SYS_gettid);
 
@@ -681,7 +650,6 @@ static void *os_timer_thread(void *arg)
   }
 
   printf("[INFO ] os_timer_thread terminated\n");
-  rpmalloc_thread_finalize();
   return NULL;
 }
 
@@ -780,73 +748,6 @@ void os_timer_destroy(os_timer_t *timer)
     timer_delete(timer->timerid);
     os_free(timer);
   }
-}
-
-//////////////////////////////////////////////////////////////////////////
-
-os_buf_t *os_buf_alloc(uint32_t length)
-{
-  os_buf_t *p = NULL;
-
-  // first check the static pbufs
-  os_mutex_lock(pbuf_mutex);
-  if(length < BUF_SIZE - sizeof(os_buf_t))
-  {
-    for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
-    {
-      if (bufs[i].in_use == false)
-      {
-        bufs[i].in_use = true;
-        p = (os_buf_t *)(bufs[i].data);
-        break;
-      }
-    }
-  }
-  
-  if(p == NULL)
-  {
-    p = os_malloc(sizeof(os_buf_t) + length);
-  }
-
-  p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
-  p->len = length;
-  os_mutex_unlock(pbuf_mutex);
-
-  return p;
-}
-
-void os_buf_free(os_buf_t *p)
-{
-  // free of NULL pointer is allowed, so just return here
-  if (p == NULL)
-  {
-    return;
-  }
-
-  // first check the static pbufs
-  uint8_t *ptr_to_check = (uint8_t *)p;
-  os_mutex_lock(pbuf_mutex);
-  if(p->len < BUF_SIZE - sizeof(os_buf_t))
-  {
-    for (size_t i = 0; i < MAX_STATIC_BUFS; i++)
-    {
-      if (ptr_to_check == bufs[i].data)
-      {
-        if (bufs[i].in_use == true)
-        {
-          bufs[i].in_use = false;
-        }
-        else
-        {
-          os_log(LOG_LEVEL_ERROR, "PNET: double os_buf_free()\n");
-        }
-        os_mutex_unlock(pbuf_mutex);
-        return;
-      }
-    }
-  }
-  os_free(p);
-  os_mutex_unlock(pbuf_mutex);
 }
 
 uint8_t os_buf_header(os_buf_t *p, int16_t header_size_increment)
@@ -1148,4 +1049,190 @@ void set_ip_address_to_interface(app_data_t *p_appdata, uint32_t ipaddr)
     log_sys_cmd(p_appdata, cmd);
     system(cmd);
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifdef _DEBUG
+os_buf_t * os_buf_alloc_dbg(uint32_t length, const char *file, int line)
+#else
+os_buf_t *os_buf_alloc(uint32_t length)
+#endif // _DEBUG
+{
+  CC_ASSERT(length < BUF_SIZE - sizeof(os_buf_t));
+
+  os_buf_t *p = NULL;
+
+  // first check the static pbufs
+  os_mutex_lock(pbuf_mutex);
+
+  for (size_t i = 0; i < NELEMENTS(send_memory_types); i++)
+  {
+    if(send_memory_types[i] == MEMORY_TYPE_FREE)
+    {
+      send_memory_types[i] = MEMORY_TYPE_STATIC_SEND;
+      p = &(bufs_send[i]);
+      p->memory_type = MEMORY_TYPE_STATIC_SEND;
+      break;
+    }
+  }
+
+  if (p == NULL)
+  {
+    p = os_malloc(sizeof(os_buf_t) + sizeof(uint32_t) + length);
+    p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
+    p->memory_type = MEMORY_TYPE_MALLOC;
+    p->ptr_to_memory_type = NULL;
+    p->idx_to_static_buf = UINT32_MAX;
+  }
+
+  p->len = length;
+
+#ifdef _DEBUG
+  p->m_p_alloc_file = file;
+  p->m_alloc_line = line;
+  p->m_p_free_file = NULL;
+  p->m_free_line = -1;
+  p->m_free_count = 0;
+#endif // _DEBUG
+
+  os_mutex_unlock(pbuf_mutex);
+
+  return p;
+}
+
+static os_buf_t *os_buf_alloc_for_recv(uint32_t length)
+{
+  os_buf_t *p = NULL;
+
+  // use the cached last freed index
+  if (   (last_freed_recv_buf_idx < NELEMENTS(recv_memory_types))
+      && (recv_memory_types[last_freed_recv_buf_idx] == MEMORY_TYPE_FREE))
+  {
+    recv_memory_types[last_freed_recv_buf_idx] = MEMORY_TYPE_STATIC_RECV;
+    p = &(bufs_recv[last_freed_recv_buf_idx]);
+    p->memory_type = MEMORY_TYPE_STATIC_RECV;
+    // invalidate cached value for now
+    last_freed_recv_buf_idx = NELEMENTS(recv_memory_types);
+    atomic_fetch_add(&nRecvBuffersAllocated, 1U);
+  }
+  else
+  {
+    for (size_t i = 0; i < NELEMENTS(recv_memory_types); i++)
+    {
+      if (recv_memory_types[i] == MEMORY_TYPE_FREE)
+      {
+        recv_memory_types[i] = MEMORY_TYPE_STATIC_RECV;
+        p = &(bufs_recv[i]);
+        p->memory_type = MEMORY_TYPE_STATIC_RECV;
+        atomic_fetch_add(&nRecvBuffersAllocated, 1U);
+        break;
+      }
+    }
+  }
+  return p;
+}
+
+#ifdef _DEBUG
+os_buf_t *os_buf_alloc_with_wait_dbg(uint32_t length, const char *file, int line)
+#else
+os_buf_t *os_buf_alloc_with_wait(uint32_t length)
+#endif // _DEBUG
+{
+  os_buf_t *p = NULL;
+  os_mutex_lock(pbuf_mutex);
+
+  if(atomic_load(&nRecvBuffersAllocated) < NELEMENTS(recv_memory_types))
+  {
+    p = os_buf_alloc_for_recv(length);
+  }  
+
+  if (p == NULL)
+  {
+    p = os_malloc(sizeof(os_buf_t) + sizeof(uint32_t) + length);
+    p->payload = (void *)((uint8_t *)p + sizeof(os_buf_t));  /* Payload follows header struct */
+    p->memory_type = MEMORY_TYPE_MALLOC;
+    p->ptr_to_memory_type = NULL;
+    p->idx_to_static_buf = UINT32_MAX;
+  }
+  p->len = length;
+
+#ifdef _DEBUG
+  p->m_p_alloc_file = file;
+  p->m_alloc_line = line;
+  p->m_p_free_file = NULL;
+  p->m_free_line = -1;
+  p->m_free_count = 0;
+#endif // _DEBUG
+
+  os_mutex_unlock(pbuf_mutex);
+  return p;
+}
+
+#ifdef _DEBUG
+void os_buf_free_dbg(os_buf_t *p, const char *file, int line)
+#else
+void os_buf_free(os_buf_t *p)
+#endif // _DEBUG
+{
+  // free of NULL pointer is allowed, so just return here
+  if (p == NULL)
+  {
+    return;
+  }
+
+  os_mutex_lock(pbuf_mutex);
+  if (p->memory_type & (MEMORY_TYPE_STATIC_RECV|MEMORY_TYPE_STATIC_SEND))
+  {
+    if (p->memory_type == MEMORY_TYPE_STATIC_RECV)
+    {
+      atomic_fetch_sub(&nRecvBuffersAllocated, 1U);
+      // cache the last freed recv buffer for faster subsequent alloc
+      last_freed_recv_buf_idx = p->idx_to_static_buf;
+    }
+    p->memory_type = MEMORY_TYPE_FREE;
+    // p->ptr_to_memory type points to recv_memory_types[] array
+    if(p->ptr_to_memory_type != NULL)
+    {
+      *(p->ptr_to_memory_type) = MEMORY_TYPE_FREE;
+    }
+#ifdef _DEBUG
+    p->m_p_free_file = file;
+    p->m_free_line = line;
+    p->m_free_count++;
+#endif // _DEBUG
+  }
+  else if (p->memory_type == MEMORY_TYPE_MALLOC)
+  {
+    p->memory_type = MEMORY_TYPE_FREE;
+#ifdef _DEBUG
+    p->m_p_free_file = file;
+    p->m_free_line = line;
+    p->m_free_count++;
+#endif // _DEBUG
+    os_free(p);
+  }
+  else if (p->memory_type == MEMORY_TYPE_FREE)
+  {
+#ifdef _DEBUG
+    LOG_WARNING(PNET_LOG,
+                "OSAL(%d): Double pbuf free:\n"
+                "Alloc : %s(%d)\n"
+                "Free  : %s(%d)\n"
+                "Second: %s(%d)\n"
+                "Count : %d\n",
+                __LINE__,
+                p->m_p_alloc_file,
+                p->m_alloc_line,
+                p->m_p_free_file,
+                p->m_free_line,
+                file,
+                line,
+                p->m_free_count);
+    p->m_free_count++;
+#else
+    LOG_WARNING(PNET_LOG, "OSAL(%d): Double pbuf free:\n",__LINE__);
+#endif // _DEBUG
+  }
+  os_mutex_unlock(pbuf_mutex);
 }
