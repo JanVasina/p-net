@@ -80,6 +80,9 @@ int pf_eth_recv(
   void                    *arg,
   os_buf_t                *p_buf);
 
+
+void pf_eth_show(pnet_t *net);
+
 #ifdef __cplusplus
 }
 #endif

@@ -41,11 +41,6 @@
 #define PF_DCP_HEADER_SIZE                      10
 #define PF_DCP_BLOCK_HDR_SIZE                   4
 
-#define PF_DCP_HELLO_FRAME_ID                   0xfefc
-#define PF_DCP_GET_SET_FRAME_ID                 0xfefd
-#define PF_DCP_ID_REQ_FRAME_ID                  0xfefe
-#define PF_DCP_ID_RES_FRAME_ID                  0xfeff
-
 #define PF_DCP_ASK_FOR_PEER_NAME_TIMEOUT        1000000 // = 1s in us
 
 CC_PACKED_BEGIN
@@ -898,40 +893,40 @@ static int pf_dcp_hello_ind(
   else
   {
     /*
-     * input = DCP-MC-Header, NameOfStationBlockRes, IPParameterBlockRes,
-     *    DeviceIDBlockRes, [DeviceOptionsBlockRes ^ DeviceVendorBlockRes],
-     *    DeviceRoleBlockRes, DeviceInitiativeBlockRes
-     */
+    * input = DCP-MC-Header, NameOfStationBlockRes, IPParameterBlockRes,
+    *    DeviceIDBlockRes, [DeviceOptionsBlockRes ^ DeviceVendorBlockRes],
+    *    DeviceRoleBlockRes, DeviceInitiativeBlockRes
+    */
 
-     /*
-      * NameOfStationBlockRes = NameOfStationType, DCPBlockLength, BlockInfo, NameOfStationValue
-      * NameOfStationType = DevicePropertiesOption (=0x02), SuboptionNameOfStation (=0x02)
-      */
+    /*
+    * NameOfStationBlockRes = NameOfStationType, DCPBlockLength, BlockInfo, NameOfStationValue
+    * NameOfStationType = DevicePropertiesOption (=0x02), SuboptionNameOfStation (=0x02)
+    */
 
-      /*
-       * IPParameterBlockRes = IPParameterType, DCPBlockLength, BlockInfo, IPParameterValue
-       * IPParameterType = IPOption (=0x01)
-       */
+    /*
+    * IPParameterBlockRes = IPParameterType, DCPBlockLength, BlockInfo, IPParameterValue
+    * IPParameterType = IPOption (=0x01)
+    */
 
-       /*
-        * DeviceIDBlockRes = DeviceIDType, DCPBlockLength, BlockInfo, DeviceIDValue
-        */
+    /*
+    * DeviceIDBlockRes = DeviceIDType, DCPBlockLength, BlockInfo, DeviceIDValue
+    */
 
-        /*
-         * DeviceOptionsBlockRes = DeviceOptionsType, DCPBlockLength, BlockInfo, DeviceOptionsValue
-         */
+    /*
+    * DeviceOptionsBlockRes = DeviceOptionsType, DCPBlockLength, BlockInfo, DeviceOptionsValue
+    */
 
-         /*
-          * DeviceVendorBlockRes = DeviceVendorType, DCPBlockLength, BlockInfo, DeviceVendorValue
-          */
+    /*
+    * DeviceVendorBlockRes = DeviceVendorType, DCPBlockLength, BlockInfo, DeviceVendorValue
+    */
 
-          /*
-           * DeviceRoleBlockRes = DeviceRoleType, DCPBlockLength, BlockInfo, DeviceRoleValue
-           */
+    /*
+    * DeviceRoleBlockRes = DeviceRoleType, DCPBlockLength, BlockInfo, DeviceRoleValue
+    */
 
-           /*
-            * DeviceInitiativeBlockRes = DeviceInitiativeType, DCPBlockLength, BlockInfo, DeviceInitiativeValue
-            */
+    /*
+    * DeviceInitiativeBlockRes = DeviceInitiativeType, DCPBlockLength, BlockInfo, DeviceInitiativeValue
+    */
   }
   os_buf_free(p_buf);
   return 1;      /* Means: handled */
@@ -940,18 +935,18 @@ static int pf_dcp_hello_ind(
 int pf_dcp_hello_req(
   pnet_t *net)
 {
-  os_buf_t *p_buf = os_buf_alloc(PF_FRAME_BUFFER_SIZE);
-  uint8_t *p_dst;
-  uint16_t                dst_pos;
-  uint16_t                dst_start_pos;
-  pf_ethhdr_t *p_ethhdr;
+  os_buf_t        *p_buf = os_buf_alloc(PF_FRAME_BUFFER_SIZE);
+  uint8_t         *p_dst;
+  uint16_t         dst_pos;
+  uint16_t         dst_start_pos;
+  pf_ethhdr_t     *p_ethhdr;
   pf_dcp_header_t *p_dcphdr;
-  uint16_t                value_length;
-  uint8_t *p_value;
-  uint8_t                 block_error;
-  uint16_t                temp16;
-  pf_ip_suite_t           ip_suite;
-   pnet_ethaddr_t          mac_address;
+  uint16_t         value_length;
+  uint8_t         *p_value;
+  uint8_t          block_error;
+  uint16_t         temp16;
+  pf_ip_suite_t    ip_suite;
+  pnet_ethaddr_t   mac_address;
 
    pf_cmina_get_macaddr(net, &mac_address);
 
@@ -1486,8 +1481,6 @@ static int pf_dcp_identify_req(
                            0,
                            net->real_length_peer_port_id,
                            net->real_peer_port_id);
-//             net->lldp_check_peers_data.length_peer_port_id,
-//             net->lldp_check_peers_data.peer_port_id);
         }
 
         pf_dcp_get_req(net, p_dst, &dst_pos, PF_FRAME_BUFFER_SIZE,

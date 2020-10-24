@@ -33,7 +33,6 @@
 
 #define ALARM_VLAN_PRIO_LOW         5
 #define ALARM_VLAN_PRIO_HIGH        6
-#define ALARM_MBOX_WAIT_MS          0
 
 static const uint16_t alarm_slot_n = 0;
 static const uint16_t alarm_subslot_n = 0x8001;
@@ -489,13 +488,27 @@ static int pf_alarm_apmr_high_handler(
   }
   if (p_buf != NULL)
   {
+    // filter too fast alarms
+//     const uint64_t timeNow = os_get_current_time_ns();
+//     if (timeNow - net->lastHighAlarmTime < PF_ALARM_TIME_SLICE_ns)
+//     {
+//       return 0; // means not handled
+//     }
+//     net->lastHighAlarmTime = timeNow;
+
+    if (os_mbox_is_full(p_apmx->p_alarm_q))
+    {
+      return 0; // means not handled
+    }
+
     uint32_t nbr = p_apmx->apmr_msg_nbr;
     pf_apmr_msg_t *p_apmr_msg = &p_apmx->apmr_msg[nbr];
     p_apmr_msg->p_buf = p_buf;
     p_apmr_msg->frame_id_pos = frame_id_pos;
-    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, ALARM_MBOX_WAIT_MS) != 0)
+    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg) != 0)
     {
-      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one high alarm\n", __LINE__);
+      p_apmr_msg->p_buf = NULL;
+      LOG_INFO(PF_ALARM_LOG, "Alarm(%d): Lost one high alarm\n", __LINE__);
       return 0; // not handled
     }
     nbr++;
@@ -543,13 +556,26 @@ static int pf_alarm_apmr_low_handler(
 
   if (p_buf != NULL)
   {
+//     const uint64_t timeNow = os_get_current_time_ns();
+//     if (timeNow - net->lastLowAlarmTime < PF_ALARM_TIME_SLICE_ns)
+//     {
+//       return 0; // means not handled
+//     }
+//     net->lastLowAlarmTime = timeNow;
+
+    if (os_mbox_is_full(p_apmx->p_alarm_q))
+    {
+      return 0; // means not handled
+    }
+
     uint32_t nbr = p_apmx->apmr_msg_nbr;
     pf_apmr_msg_t *p_apmr_msg = &p_apmx->apmr_msg[nbr];
     p_apmr_msg->p_buf = p_buf;
     p_apmr_msg->frame_id_pos = frame_id_pos;
-    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg, ALARM_MBOX_WAIT_MS) != 0)
+    if (os_mbox_post(p_apmx->p_alarm_q, (void *)p_apmr_msg) != 0)
     {
-      LOG_ERROR(PF_ALARM_LOG, "Alarm(%d): Lost one low alarm\n", __LINE__);
+      p_apmr_msg->p_buf = NULL;
+      LOG_INFO(PF_ALARM_LOG, "Alarm(%d): Lost one low alarm\n", __LINE__);
       return 0; // not handled
     }
     nbr++;    /* ToDo: Make atomic */
@@ -1002,6 +1028,7 @@ static int pf_alarm_apms_a_data_req(
 
         p_rta->len = pos;
         LOG_DEBUG(PF_AL_BUF_LOG, "Alarm(%d): Send an alarm frame.\n", __LINE__);
+        
         if (os_eth_send(p_apmx->p_ar->p_sess->eth_handle, p_rta) <= 0)
         {
           LOG_ERROR(PF_ALARM_LOG, "pf_alarm(%d): Error from os_eth_send(rta)\n", __LINE__);
@@ -1601,7 +1628,7 @@ static int pf_alarm_apmr_periodic(
     p_buf = NULL;
     while ((ret == 0) &&
            (p_apmx->apmr_state != PF_APMR_STATE_CLOSED) &&
-           (os_mbox_fetch(p_apmx->p_alarm_q, (void **)&p_alarm_msg, ALARM_MBOX_WAIT_MS) == 0))
+           (os_mbox_fetch(p_apmx->p_alarm_q, (void **)&p_alarm_msg) == 0))
     {
       if ((p_alarm_msg != NULL) && (p_alarm_msg->p_buf != NULL))
       {

@@ -688,15 +688,20 @@ void pf_lldp_recv(
 
     if (pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->previous_lldp_check_peers_data)) != 0)
     {
-      uint16_t ix;
-      for (ix = 0U; ix < PNET_MAX_AR; ix++)
+      // after startup the previous LLDP data are set to zero, so check it
+      if(   (net->previous_lldp_check_peers_data.length_peer_chassis_id > 0)
+         || (net->previous_lldp_check_peers_data.length_peer_port_id > 0))
       {
-        pf_ar_t *p_ar = pf_ar_find_by_index(net, ix);
-        if (p_ar != NULL)
+        uint16_t ix;
+        for (ix = 0U; ix < PNET_MAX_AR; ix++)
         {
-          if (p_ar->in_use == true)
+          pf_ar_t *p_ar = pf_ar_find_by_index(net, ix);
+          if (p_ar != NULL)
           {
-            pf_ppm_set_problem_indicator(p_ar, true);
+            if (p_ar->in_use == true)
+            {
+              pf_ppm_set_problem_indicator(p_ar, true);
+            }
           }
         }
       }

@@ -52,7 +52,7 @@ int pf_eth_recv(
   uint16_t    type;
   uint16_t    frame_id;
   uint16_t    *p_data;
-  uint16_t    ix = 0;
+  size_t      ix = 0;
   pnet_t      *net = (pnet_t*)arg;
 
   // check destination mac address
@@ -100,6 +100,13 @@ int pf_eth_recv(
       ret = net->eth_id_map[ix].frame_handler(net, frame_id, p_buf,
                                               type_pos + sizeof(uint16_t), net->eth_id_map[ix].p_arg);
     }
+#ifdef _DEBUG
+    else if(frame_id == PF_DCP_ID_REQ_FRAME_ID)
+    {
+      LOG_WARNING(PF_DCP_LOG, "PF_ETHP(%d): 0x%X frame not found in table\n", __LINE__, PF_DCP_ID_REQ_FRAME_ID);
+      pf_eth_show(net);
+    }
+#endif // _DEBUG
     break;
   case OS_ETHTYPE_LLDP:
     // LLDP packet is processed, but the buffer can be reused, so return 0 as not handled
@@ -156,10 +163,10 @@ void pf_eth_frame_id_map_add(
 
   if (ix < NELEMENTS(net->eth_id_map))
   {
-    os_log(LOG_LEVEL_INFO, "ETH(%d): Add FrameIds 0x%x at index %u\n", 
-           __LINE__,
-           frame_id, 
-           ix);
+    LOG_INFO(PF_ETH_LOG, "ETH(%d): Add FrameIds 0x%x at index %u\n",
+             __LINE__,
+             frame_id,
+             ix);
     net->eth_id_map[ix].in_use        = true;
     net->eth_id_map[ix].frame_id      = frame_id;
     net->eth_id_map[ix].frame_handler = frame_handler;
@@ -190,9 +197,23 @@ void pf_eth_frame_id_map_remove(
   if (ix < NELEMENTS(net->eth_id_map))
   {
     net->eth_id_map[ix].in_use = false;
-    os_log(LOG_LEVEL_INFO, "ETH(%d): Free room for FrameId 0x%x at index %u\n", 
-           __LINE__,
-           (unsigned)frame_id, 
-           (unsigned)ix);
+    LOG_INFO(PF_ETH_LOG, "ETH(%d): Free room for FrameId 0x%x at index %u\n",
+             __LINE__,
+             frame_id,
+             ix);
+  }
+}
+
+void pf_eth_show(pnet_t *net)
+{
+  size_t ix;
+
+  printf("pf_eth_show:\n");
+  for (ix = 0; ix < NELEMENTS(net->eth_id_map); ix++)
+  {
+    printf("%u: id 0x%X in use %i\n", 
+           ix, 
+           net->eth_id_map[ix].frame_id, 
+           (int)net->eth_id_map[ix].in_use);
   }
 }

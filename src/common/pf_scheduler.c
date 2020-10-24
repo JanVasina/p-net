@@ -230,7 +230,6 @@ int pf_scheduler_add(
 
    if (delay > 0x80000000)  /* Make sure it is reasonable */
    {
-      printf("CPM(%d): Adjusting %s from %u\n", __LINE__, p_name, (unsigned)delay);
       delay = 1;
    }
 
@@ -242,7 +241,7 @@ int pf_scheduler_add(
 
    if (ix_free >= PF_MAX_TIMEOUTS)
    {
-      LOG_ERROR(PNET_LOG, "SCHEDULER(%d): Out of timeout resources!!\n", __LINE__);
+      LOG_ERROR(PNET_LOG, "SCHEDULER(%d): Out of timeout resources for %s!!\n", __LINE__, p_name);
       return -1;
    }
 
