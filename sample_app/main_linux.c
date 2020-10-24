@@ -964,8 +964,6 @@ void *timer_thread_func(void *arg)
   app_data_t           *p_appdata = appdata_and_stack->appdata;
   pnet_t               *net = appdata_and_stack->net;
 
-  rpmalloc_thread_initialize();
-
   struct timespec timeAbs;
   clock_gettime(CLOCK_REALTIME, &timeAbs);
   int64_t tCur = (int64_t)(timeAbs.tv_sec) * 1000000000ll + (int64_t)(timeAbs.tv_nsec);
@@ -997,8 +995,6 @@ void *timer_thread_func(void *arg)
     os_log(LOG_LEVEL_INFO, "[INFO ] timer_thread_func terminated\n");
   }
 
-  rpmalloc_thread_finalize();
-
   return NULL;
 }
 
@@ -1011,8 +1007,6 @@ void *pn_main(void *arg)
   app_data_and_stack_t *appdata_and_stack = (app_data_and_stack_t *)arg;
   app_data_t           *p_appdata         = appdata_and_stack->appdata;
   pnet_t               *net               = appdata_and_stack->net;
-
-  rpmalloc_thread_initialize();
 
   if (p_appdata->arguments.verbosity > 0)
   {
@@ -1074,7 +1068,7 @@ void *pn_main(void *arg)
       break;
     }
   }
-  rpmalloc_thread_finalize();
+
   if (p_appdata->arguments.verbosity > 0)
   {
     os_log(LOG_LEVEL_INFO, "[INFO ] pn_main terminated\n");
@@ -1121,13 +1115,14 @@ int main(int argc, char *argv[])
   appdata.running = true;
   os_init(&appdata);
 
-  printf("\n");
-  os_log(LOG_LEVEL_INFO, "******* Starting TGMmini Profinet I/O application *******\n");
-  printf(   "***     Built " __DATE__ " " __TIME__ "                    ***\n");
-  printf(   "***     Using Profinet p-net stack by rt-labs.com     ***\n");
-  printf(   "***          (https://rt-labs.com/docs/pnet)          ***\n");
-  printf(   "***      and memory allocator by Mattias Jansson      ***\n");
-  printf(   "*******  (https://github.com/mjansson/rpmalloc)   *******\n\n");
+  if(appdata.arguments.quiet == 0)
+  {
+    printf("\n");
+    os_log(LOG_LEVEL_INFO, "******* Starting TGMmini Profinet I/O application *******\n");
+    printf("***     Built " __DATE__ " " __TIME__ "                    ***\n");
+    printf("***     Using Profinet p-net stack by rt-labs.com     ***\n");
+    printf("***          (https://rt-labs.com/docs/pnet)          ***\n");
+  }
 
   /* Read IP, netmask, gateway and MAC address from operating system */
   if (!does_network_interface_exist(appdata.arguments.eth_interface))
@@ -1221,29 +1216,32 @@ int main(int argc, char *argv[])
     exit(EXIT_CODE_ERROR);
   }
 
-  os_log(LOG_LEVEL_INFO, "Number of slots:    %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
-  os_log(LOG_LEVEL_INFO, "Log level:          %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
-  os_log(LOG_LEVEL_INFO, "Verbosity level:    %u\n", appdata.arguments.verbosity);
-  os_log(LOG_LEVEL_INFO, "Ethernet interface: %s\n", appdata.arguments.eth_interface);
-  print_ip_address("Linux IP address:   ", appdata.def_ip);
-  os_log(LOG_LEVEL_INFO, "Station name:       %s\n", appdata.arguments.station_name);
-  os_log(LOG_LEVEL_INFO, "MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
-         macbuffer.addr[0],
-         macbuffer.addr[1],
-         macbuffer.addr[2],
-         macbuffer.addr[3],
-         macbuffer.addr[4],
-         macbuffer.addr[5]);
-  print_ip_address("IP address:         ", ip_int);
-  print_ip_address("Netmask:            ", netmask_int);
-  print_ip_address("Gateway:            ", gateway_ip_int);
-  os_log(LOG_LEVEL_INFO, "Adjust peer2peer:   0x%X\n\n", pnet_default_cfg.adjust_peer_to_peer_boundary);
-  os_log(LOG_LEVEL_INFO, "Temporary check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n\n\n",
-         pnet_default_cfg.temp_check_peers_data.number_of_peers,
-         pnet_default_cfg.temp_check_peers_data.length_peer_port_id,
-         pnet_default_cfg.temp_check_peers_data.peer_port_id,
-         pnet_default_cfg.temp_check_peers_data.length_peer_chassis_id,
-         pnet_default_cfg.temp_check_peers_data.peer_chassis_id);
+  if (appdata.arguments.quiet == 0)
+  {
+    os_log(LOG_LEVEL_INFO, "Number of slots:    %u (incl slot for DAP module)\n", PNET_MAX_MODULES);
+    os_log(LOG_LEVEL_INFO, "Log level:          %u (DEBUG=0, ERROR=3)\n", LOG_LEVEL);
+    os_log(LOG_LEVEL_INFO, "Verbosity level:    %u\n", appdata.arguments.verbosity);
+    os_log(LOG_LEVEL_INFO, "Ethernet interface: %s\n", appdata.arguments.eth_interface);
+    print_ip_address("Linux IP address:   ", appdata.def_ip);
+    os_log(LOG_LEVEL_INFO, "Station name:       %s\n", appdata.arguments.station_name);
+    os_log(LOG_LEVEL_INFO, "MAC address:        %02x:%02x:%02x:%02x:%02x:%02x\n",
+           macbuffer.addr[0],
+           macbuffer.addr[1],
+           macbuffer.addr[2],
+           macbuffer.addr[3],
+           macbuffer.addr[4],
+           macbuffer.addr[5]);
+    print_ip_address("IP address:         ", ip_int);
+    print_ip_address("Netmask:            ", netmask_int);
+    print_ip_address("Gateway:            ", gateway_ip_int);
+    os_log(LOG_LEVEL_INFO, "Adjust peer2peer:   0x%X\n\n", pnet_default_cfg.adjust_peer_to_peer_boundary);
+    os_log(LOG_LEVEL_INFO, "Temporary check peers data:\n\tNumberOfPeers %u\n\tLengthPeerPortID %u\n\tPeerPortID %s\n\tLengthPeerChassisID %u\n\tPeerChassisID %s\n\n\n",
+           pnet_default_cfg.temp_check_peers_data.number_of_peers,
+           pnet_default_cfg.temp_check_peers_data.length_peer_port_id,
+           pnet_default_cfg.temp_check_peers_data.peer_port_id,
+           pnet_default_cfg.temp_check_peers_data.length_peer_chassis_id,
+           pnet_default_cfg.temp_check_peers_data.peer_chassis_id);
+  }
 
   /* Set IP and gateway */
   strcpy(pnet_default_cfg.im_0_data.order_id, "2707");
@@ -1273,7 +1271,6 @@ int main(int argc, char *argv[])
   {
     os_log(LOG_LEVEL_ERROR, "Failed to initialize p-net. Do you have enough Ethernet interface permission?\n");
     close_plc_memory();
-    rpmalloc_finalize();
     exit(EXIT_CODE_ERROR);
   }
 
@@ -1291,7 +1288,7 @@ int main(int argc, char *argv[])
   appdata.main_events = os_event_create();
   appdata.main_thread = os_thread_create("pn_main", APP_PRIO, APP_STACKSIZE, pn_main, (void *)&appdata_and_stack);
 
-#if 1
+#if 0
   appdata.main_timer = os_timer_create(TICK_INTERVAL_US, main_timer_tick, (void *)&appdata_and_stack, false);
   os_timer_start(appdata.main_timer);
 #else

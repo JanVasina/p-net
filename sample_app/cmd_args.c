@@ -50,6 +50,7 @@ void show_usage()
   printf("   -d           Use system IP address as Profinet I/O address\n");
   printf("                (ignore tgm-pnet-ip.dat)\n");
   printf("   -l           Disable LED control\n");
+  printf("   -q           Quiet: do not display program heder\n");
 
   printf("\n");
 }
@@ -80,10 +81,11 @@ struct cmd_args parse_commandline_arguments(int argc, char *argv[])
   output_arguments.verbosity = 0;
   output_arguments.use_ip_settings = IP_SETTINGS_FILE;
   output_arguments.use_led = 1;
+  output_arguments.quiet = 0;
   log_to_file = 0;
 
   int option;
-  while ((option = getopt(argc, argv, "hedvfli:s:")) != -1)
+  while ((option = getopt(argc, argv, "hedvflqi:s:")) != -1)
   {
     switch (option)
     {
@@ -107,6 +109,9 @@ struct cmd_args parse_commandline_arguments(int argc, char *argv[])
       break;
     case 's':
       strcpy(output_arguments.station_name, optarg);
+      break;
+    case 'q':
+      output_arguments.quiet = 1;
       break;
     case 'h':
     case '?':

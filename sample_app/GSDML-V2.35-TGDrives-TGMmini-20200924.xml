@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-<ISO15745Profile xmlns="http://www.profibus.com/GSDML/2003/11/DeviceProfile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.profibus.com/GSDML/2003/11/DeviceProfile ..\xsd\GSDML-DeviceProfile-V2.34.xsd">
+<ISO15745Profile xmlns="http://www.profibus.com/GSDML/2003/11/DeviceProfile" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.profibus.com/GSDML/2003/11/DeviceProfile ..\xsd\GSDML-DeviceProfile-V2.35.xsd">
   <!-- ProfileHeader definition as defined in ISO 15745-1. Please do not change the content. -->
   <ProfileHeader>
     <ProfileIdentification>PROFINET Device Profile</ProfileIdentification>
@@ -23,7 +23,7 @@
     </DeviceFunction>
     <ApplicationProcess>
       <DeviceAccessPointList>
-        <DeviceAccessPointItem ID="IDD_1" PNIO_Version="V2.34" PhysicalSlots="0..8" ModuleIdentNumber="0x00000001" MinDeviceInterval="128" DNS_CompatibleName="tgmmini" FixedInSlots="0" ObjectUUID_LocalIndex="1" SharedDeviceSupported="false" DeviceAccessSupported="true" NumberOfDeviceAccessAR="1" MultipleWriteSupported="true" CheckDeviceID_Allowed="true" NameOfStationNotTransferable="false" LLDP_NoD_Supported="true" ResetToFactoryModes="2">
+        <DeviceAccessPointItem ID="IDD_1" PNIO_Version="V2.35" PhysicalSlots="0..8" ModuleIdentNumber="0x00000001" MinDeviceInterval="128" DNS_CompatibleName="tgmmini" FixedInSlots="0" ObjectUUID_LocalIndex="1" SharedDeviceSupported="false" DeviceAccessSupported="true" NumberOfDeviceAccessAR="1" MultipleWriteSupported="true" CheckDeviceID_Allowed="true" NameOfStationNotTransferable="false" LLDP_NoD_Supported="true" ResetToFactoryModes="2">
           <ModuleInfo>
             <Name TextId="IDT_MODULE_NAME_DAP1"/>
             <InfoText TextId="IDT_INFO_DAP1"/>
@@ -319,7 +319,7 @@
       </ModuleList>
       <ExternalTextList>
         <PrimaryLanguage>
-          <Text TextId="IDT_INFO_Device" Value="PNO GSDML V2.34"/>
+          <Text TextId="IDT_INFO_Device" Value="PNO GSDML V2.35"/>
           <Text TextId="IDT_MODULE_NAME_DAP1" Value="tgmmini"/>
           <Text TextId="IDT_INFO_DAP1" Value="TGMmini with ProfinetIO device support"/>
           <Text TextId="IDT_NAME_IS" Value="I"/>

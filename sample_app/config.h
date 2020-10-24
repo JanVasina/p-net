@@ -37,7 +37,7 @@
 #define IP_INVALID                     0
 #define EXIT_CODE_ERROR                1
 #define TICK_INTERVAL_US               1000        /* in microseconds */
-#define DATA_INTERVAL_US               1000
+#define DATA_INTERVAL_US               2000
 #define APP_DEFAULT_ETHERNET_INTERFACE "eth0"
 #define APP_STACKSIZE                  4096        /* bytes */
 #define APP_ALARM_USI                  1
@@ -163,6 +163,7 @@ typedef struct cmd_args
   int  verbosity;
   int  use_ip_settings;
   int  use_led;
+  int  quiet;
 } cmd_args_t;
 
 typedef struct app_data_obj
