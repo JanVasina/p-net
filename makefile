@@ -28,13 +28,14 @@ PROJECT_NAME=tgm-pnet
 
 ifeq ($(OS),Windows_NT)
 	SRC_PATH=Z:/ProfiNET/OpenSource/work
-	SYS_LIBS_PATH=Z:/TGDev/update-sysroot/sysroot
-	CC=Z:/TGDev/PLC/projects/gnu/gcc-arm-linux-gnueabi/bin/arm-linux-gnueabihf-gcc.exe
+	SYS_LIBS_PATH=Z:\TGDev\PLC\projects\gnu\gcc-arm-linux-gnueabi-full\sysroot
+	CC=Z:/TGDev/PLC/projects/gnu/gcc-arm-linux-gnueabi-full/bin/arm-linux-gnueabihf-gcc.exe
 	OUT_PATH=Z:/TGDev/TGMmini_cross_compile/TGMotion/system
 	BUILD_PATH=Z:/ProfiNET/OpenSource/tmp
 	POST_BUILD_CMD=Z:/SysGCC/WinSCP/pnet.bat
-	OBJDUMP=Z:/TGDev/PLC/projects/gnu/gcc-arm-linux-gnueabi/bin/arm-linux-gnueabihf-objdump.exe
+	OBJDUMP=Z:/TGDev/PLC/projects/gnu/gcc-arm-linux-gnueabi-full/bin/arm-linux-gnueabihf-objdump.exe
 	OBJDUMP_CMD_PREFIX=cmd /C
+	RM=Z:/TGDev/PLC/projects/gnu/gcc-arm-linux-gnueabi-full/bin/rm.exe
 else
 	CC=gcc
 	OBJDUMP=objdump.exe
@@ -46,6 +47,7 @@ else
 	OUT_PATH=/TGMotion/system
 	BUILD_PATH=/home/shareman/tmp
 	POST_BUILD_CMD=
+	RM=rm
 endif
 
 OUT_FILE_NAME=$(OUT_PATH)/$(PROJECT_NAME)
@@ -63,7 +65,7 @@ ifeq ($(DEBUG), 1)
 	DEBUG_INFO=-g
 else
 	OPTIMIZE=-O2
-	DEBUG_INFO=
+	DEBUG_INFO=-g
 endif
 
 SOURCES=$(SRC_PATH)/sample_app/main_linux.c \
@@ -88,6 +90,7 @@ SOURCES=$(SRC_PATH)/sample_app/main_linux.c \
 		$(SRC_PATH)/src/device/pf_cmpbe.c \
 		$(SRC_PATH)/src/device/pf_cmrdr.c \
 		$(SRC_PATH)/src/device/pf_cmrpc.c \
+		$(SRC_PATH)/src/device/pf_cmrpc_helpers.c \
 		$(SRC_PATH)/src/device/pf_cmrs.c \
 		$(SRC_PATH)/src/device/pf_cmsm.c \
 		$(SRC_PATH)/src/device/pf_cmsu.c \
@@ -95,7 +98,6 @@ SOURCES=$(SRC_PATH)/sample_app/main_linux.c \
 		$(SRC_PATH)/src/device/pf_diag.c \
 		$(SRC_PATH)/src/device/pf_fspm.c \
 		$(SRC_PATH)/src/device/pnet_api.c \
-		$(SRC_PATH)/src/rpmalloc/rpmalloc.c \
 		$(SRC_PATH)/src/osal/linux/osal.c \
 		$(SRC_PATH)/src/osal/linux/osal_eth.c \
 		$(SRC_PATH)/src/osal/linux/osal_udp.c \
@@ -124,6 +126,7 @@ HEADERS=$(SRC_PATH)/include/pnet_api.h \
 		$(SRC_PATH)/src/device/pf_cmpbe.h \
 		$(SRC_PATH)/src/device/pf_cmrdr.h \
 		$(SRC_PATH)/src/device/pf_cmrpc.h \
+		$(SRC_PATH)/src/device/pf_cmrpc_helpers.h \
 		$(SRC_PATH)/src/device/pf_cmrs.h \
 		$(SRC_PATH)/src/device/pf_cmsm.h \
 		$(SRC_PATH)/src/device/pf_cmsu.h \
@@ -137,7 +140,6 @@ HEADERS=$(SRC_PATH)/include/pnet_api.h \
 		$(SRC_PATH)/src/osal/linux/cc.h \
 		$(SRC_PATH)/src/osal/linux/osal_sys.h \
 		$(SRC_PATH)/src/osal/linux/i2c_led.h \
-		$(SRC_PATH)/src/rpmalloc/rpmalloc.h \
 		$(SRC_PATH)/build/src/options.h \
 		$(SRC_PATH)/build/src/version.h \
 		$(SRC_PATH)/build/include/pnet_export.h \
@@ -196,6 +198,7 @@ OBJECTS=$(BUILD_PATH)/main_linux.o \
 		$(BUILD_PATH)/pf_cmpbe.o \
 		$(BUILD_PATH)/pf_cmrdr.o \
 		$(BUILD_PATH)/pf_cmrpc.o \
+		$(BUILD_PATH)/pf_cmrpc_helpers.o \
 		$(BUILD_PATH)/pf_cmrs.o \
 		$(BUILD_PATH)/pf_cmsm.o \
 		$(BUILD_PATH)/pf_cmsu.o \
@@ -206,7 +209,6 @@ OBJECTS=$(BUILD_PATH)/main_linux.o \
 		$(BUILD_PATH)/osal.o \
 		$(BUILD_PATH)/osal_eth.o \
 		$(BUILD_PATH)/osal_udp.o \
-		$(BUILD_PATH)/rpmalloc.o \
 			
 all: $(EXECUTABLE)
 
@@ -284,6 +286,9 @@ $(BUILD_PATH)/pf_cmrdr.o: $(SRC_PATH)/src/device/pf_cmrdr.c $(HEADERS)
 $(BUILD_PATH)/pf_cmrpc.o: $(SRC_PATH)/src/device/pf_cmrpc.c $(HEADERS)
 	$(CC) $(SRC_PATH)/src/device/pf_cmrpc.c -c $(CFLAGS) -o $(BUILD_PATH)/pf_cmrpc.o
 
+$(BUILD_PATH)/pf_cmrpc_helpers.o: $(SRC_PATH)/src/device/pf_cmrpc_helpers.c $(HEADERS)
+	$(CC) $(SRC_PATH)/src/device/pf_cmrpc_helpers.c -c $(CFLAGS) -o $(BUILD_PATH)/pf_cmrpc_helpers.o
+
 $(BUILD_PATH)/pf_cmrs.o: $(SRC_PATH)/src/device/pf_cmrs.c $(HEADERS)
 	$(CC) $(SRC_PATH)/src/device/pf_cmrs.c -c $(CFLAGS) -o $(BUILD_PATH)/pf_cmrs.o
 
@@ -314,12 +319,9 @@ $(BUILD_PATH)/osal_eth.o: $(SRC_PATH)/src/osal/linux/osal_eth.c $(HEADERS)
 $(BUILD_PATH)/osal_udp.o: $(SRC_PATH)/src/osal/linux/osal_udp.c $(HEADERS)
 	$(CC) $(SRC_PATH)/src/osal/linux/osal_udp.c -c $(CFLAGS) -o $(BUILD_PATH)/osal_udp.o
 
-$(BUILD_PATH)/rpmalloc.o: $(SRC_PATH)/src/rpmalloc/rpmalloc.c $(SRC_PATH)/src/rpmalloc/rpmalloc.h
-	$(CC) $(SRC_PATH)/src/rpmalloc/rpmalloc.c -c $(CFLAGS) -o $(BUILD_PATH)/rpmalloc.o
-
 clean:
-	rm -f $(OBJECTS)
+	$(RM) -f $(OBJECTS)
 
 clean_all:
-	rm -f $(OBJECTS) $(EXECUTABLE)
+	$(RM) -f $(OBJECTS) $(EXECUTABLE)
 
