@@ -35,14 +35,14 @@
           <CertificationInfo ConformanceClass="A" ApplicationClass="" NetloadClass="I"/>
           <IOConfigData MaxInputLength="512" MaxOutputLength="512"/>
           <UseableModules>
-            <ModuleItemRef ModuleItemTarget="IDM_11" FixedInSlots="1"/> <!--  32 bytes In -->
-            <ModuleItemRef ModuleItemTarget="IDM_12" FixedInSlots="2"/> <!--  64 bytes In -->
-            <ModuleItemRef ModuleItemTarget="IDM_13" FixedInSlots="3"/> <!-- 128 bytes In -->
-            <ModuleItemRef ModuleItemTarget="IDM_14" FixedInSlots="4"/> <!-- 256 bytes In -->
-            <ModuleItemRef ModuleItemTarget="IDM_15" FixedInSlots="5"/> <!--  32 bytes Out -->
-            <ModuleItemRef ModuleItemTarget="IDM_16" FixedInSlots="6"/> <!--  64 bytes Out -->
-            <ModuleItemRef ModuleItemTarget="IDM_17" FixedInSlots="7"/> <!-- 128 bytes Out -->
-            <ModuleItemRef ModuleItemTarget="IDM_18" FixedInSlots="8"/> <!-- 256 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_11" AllowedInSlots="1"/> <!--  32 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_12" AllowedInSlots="2"/> <!--  64 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_13" AllowedInSlots="3"/> <!-- 128 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_14" AllowedInSlots="4"/> <!-- 256 bytes In -->
+            <ModuleItemRef ModuleItemTarget="IDM_15" AllowedInSlots="5"/> <!--  32 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_16" AllowedInSlots="6"/> <!--  64 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_17" AllowedInSlots="7"/> <!-- 128 bytes Out -->
+            <ModuleItemRef ModuleItemTarget="IDM_18" AllowedInSlots="8"/> <!-- 256 bytes Out -->
           </UseableModules>
           <VirtualSubmoduleList>
             <VirtualSubmoduleItem ID="IDS_1" SubmoduleIdentNumber="0x00000001" Writeable_IM_Records="1 2 3" MayIssueProcessAlarm="false">

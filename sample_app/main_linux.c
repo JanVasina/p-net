@@ -963,6 +963,7 @@ void *timer_thread_func(void *arg)
   app_data_and_stack_t *appdata_and_stack = (app_data_and_stack_t *)arg;
   app_data_t           *p_appdata = appdata_and_stack->appdata;
   pnet_t               *net = appdata_and_stack->net;
+  uint32_t              tick_ctr_update_data = 0;
 
   struct timespec timeAbs;
   clock_gettime(CLOCK_REALTIME, &timeAbs);
@@ -977,11 +978,17 @@ void *timer_thread_func(void *arg)
   {
     clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &timeAbs, NULL);
 
-    /* Set data for custom input modules, if any */
-    setInputDataToController(net, p_appdata);
+    tick_ctr_update_data += TICK_INTERVAL_US;
+    if ((p_appdata->main_arep != UINT32_MAX) && tick_ctr_update_data >= DATA_INTERVAL_US)
+    {
+      tick_ctr_update_data = 0;
 
-    /* Read data from first of the custom output modules, if any */
-    getOutputDataFromController(net, p_appdata);
+      /* Set data for custom input modules, if any */
+      setInputDataToController(net, p_appdata);
+
+      /* Read data from first of the custom output modules, if any */
+      getOutputDataFromController(net, p_appdata);
+    }
 
     pnet_handle_periodic(net);
 
@@ -1033,7 +1040,7 @@ void *pn_main(void *arg)
       const uint64_t timeStart = timeGetTime64_ns();
       tick_ctr_update_data += TICK_INTERVAL_US;
 
-      /* Set input and output data every 8 ms */
+      /* Set input and output data every 4 ms */
       if ((p_appdata->main_arep != UINT32_MAX) && tick_ctr_update_data >= DATA_INTERVAL_US)
       {
         tick_ctr_update_data = 0;
