@@ -688,6 +688,7 @@ void pf_lldp_recv(
 
     if (pf_check_peers_data_is_same(&(net->lldp_check_peers_data), &(net->previous_lldp_check_peers_data)) != 0)
     {
+      bool bProblemSet = false;
       // after startup the previous LLDP data are set to zero, so check it
       if(   (net->previous_lldp_check_peers_data.length_peer_chassis_id > 0)
          || (net->previous_lldp_check_peers_data.length_peer_port_id > 0))
@@ -701,18 +702,22 @@ void pf_lldp_recv(
             if (p_ar->in_use == true)
             {
               pf_ppm_set_problem_indicator(p_ar, true);
+              bProblemSet = true;
             }
           }
         }
       }
 
       LOG_WARNING(PF_ETH_LOG,
-               "LLDP(%d): Check peers data changed:\nOLD chassis: %s port: %s\nNEW chassis: %s port: %s\n",
-               __LINE__,
-               net->previous_lldp_check_peers_data.peer_chassis_id,
-               net->previous_lldp_check_peers_data.peer_port_id,
-               net->lldp_check_peers_data.peer_chassis_id,
-               net->real_peer_port_id);
+                  "LLDP(%d): Check peers data changed (problem set to %s):\nOLD chassis (%d): %s port(%d): %s\nNEW chassis: %s port: %s\n",
+                  __LINE__,
+                  bProblemSet ? "YES" : "NO",
+                  net->previous_lldp_check_peers_data.length_peer_chassis_id,
+                  net->previous_lldp_check_peers_data.peer_chassis_id,
+                  net->previous_lldp_check_peers_data.length_peer_port_id,
+                  net->previous_lldp_check_peers_data.peer_port_id,
+                  net->lldp_check_peers_data.peer_chassis_id,
+                  net->real_peer_port_id);
                // net->lldp_check_peers_data.peer_port_id);
 
       net->previous_lldp_check_peers_data = net->lldp_check_peers_data;

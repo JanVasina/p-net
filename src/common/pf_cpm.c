@@ -124,8 +124,6 @@ static void pf_cpm_control_interval_expired(
 #if PNET_PROFILE != 0
   const uint64_t start = os_get_current_time_us();
 #endif // PNET_PROFILE != 0
-  uint32_t dht;
-  uint32_t data_hold_factor;
 
   p_iocr->cpm.ci_timer = UINT32_MAX;
   if (p_iocr->cpm.ci_running == true) /* Timer running */
@@ -136,41 +134,40 @@ static void pf_cpm_control_interval_expired(
     case PF_CPM_STATE_FRUN:
       break;
     case PF_CPM_STATE_RUN:
-      dht = atomic_load(&(p_iocr->cpm.dht));
-      data_hold_factor = p_iocr->cpm.data_hold_factor;
-      if (dht > data_hold_factor)
+    {
+      const uint64_t timeNow = os_get_current_time_us();
+      const uint64_t dht_timestamp = p_iocr->cpm.dht_init_timestamp;
+      const uint64_t dht_timeout = p_iocr->cpm.dht_timeout;
+      if (timeNow > dht_timestamp + dht_timeout)
       {
         /* dht expired */
-        const uint64_t dht_timestamp = p_iocr->cpm.dht_init_timestamp;
-        const uint32_t control_interval = p_iocr->cpm.control_interval;
         p_iocr->p_ar->err_code = PNET_ERROR_CODE_2_ABORT_AR_CONSUMER_DHT_EXPIRED;
 
-        atomic_init(&(p_iocr->cpm.dht), 0);
+        //atomic_init(&(p_iocr->cpm.dht), 0);
         p_iocr->cpm.ci_running = false;    /* Stop timer */
 
-        pf_cpm_state_ind(net, p_iocr->p_ar, p_iocr->crep, false);   /* stop */        
+        pf_cpm_state_ind(net, p_iocr->p_ar, p_iocr->crep, false);   /* stop */
         pf_cpm_set_state(&p_iocr->cpm, PF_CPM_STATE_W_START);
 
         // display log at the end of function, after alarm send
         // to shorten response time
-        LOG_WARNING(PF_CPM_LOG, "CPM(%i): dht (%u) expired (> %u), interval %u, elapsed %llu us\n",
+        LOG_WARNING(PF_CPM_LOG, "CPM(%i): dht exp (> %llu), elapsed %u, interval %u [us]\n",
                     __LINE__,
-                    dht,
-                    data_hold_factor,
-                    control_interval,
-                    os_get_current_time_us() - dht_timestamp);
+                    dht_timeout,
+                    (uint32_t)(timeNow - dht_timestamp),
+                    DHT_TIMER_INTERVAL);
       }
-      else
-      {
-        atomic_fetch_add(&(p_iocr->cpm.dht), 1U);
-      }
+      break;
+    }
+    default:
+      ; // do nothing
       break;
     }
 
     if (p_iocr->cpm.ci_running == true)
     {
       /* Timer auto-reload */
-      if (pf_scheduler_add(net, p_iocr->cpm.control_interval, cpm_sync_name,
+      if (pf_scheduler_add(net, DHT_TIMER_INTERVAL, cpm_sync_name,
                            pf_cpm_control_interval_expired, arg, &p_iocr->cpm.ci_timer) != 0)
       {
         p_iocr->cpm.ci_timer = UINT32_MAX;
@@ -245,7 +242,7 @@ int pf_cpm_close_req(
 
   LOG_DEBUG(PF_CPM_LOG, "CPM: close\n");
   p_cpm->ci_running = false;    /* StopTimer */
-  atomic_init(&(p_cpm->dht), 0U);
+  //atomic_init(&(p_cpm->dht), 0U);
   if (p_cpm->ci_timer != UINT32_MAX)
   {
     pf_scheduler_remove(net, cpm_sync_name, p_cpm->ci_timer);
@@ -499,6 +496,8 @@ static int pf_cpm_c_data_ind(
     }
     else if (dht_reload)
     {
+      p_cpm->dht_init_timestamp = os_get_current_time_us();
+
       if (p_cpm->state == PF_CPM_STATE_FRUN)
       {
         pf_cpm_state_ind(net, p_iocr->p_ar, p_iocr->crep, true);   /* start */
@@ -519,8 +518,7 @@ static int pf_cpm_c_data_ind(
       }
 
       /* 20, 21 */
-       atomic_init(&p_cpm->dht, 0U);
-       p_cpm->dht_init_timestamp = os_get_current_time_us();
+       //atomic_init(&p_cpm->dht, 0U);
 
       p_cpm->cycle = (int32_t)cycle;
       changes = p_cpm->data_status ^ data_status;
@@ -563,8 +561,6 @@ int pf_cpm_udp_c_data_ind(
   return 0;
 }
 
-#define DHT_PRECISION 2
-
 int pf_cpm_activate_req(
   pnet_t                 *net,
   pf_ar_t                *p_ar,
@@ -580,15 +576,22 @@ int pf_cpm_activate_req(
 
   switch (p_cpm->state)
   {
-  case PF_CPM_STATE_W_START:
-    p_cpm->control_interval = (((uint32_t)p_iocr->param.send_clock_factor
-                                * (uint32_t)p_iocr->param.reduction_ratio
-                                * 1000U)
-                               / (32U * DHT_PRECISION));
-    if (net->dht_adjust > 0)
+  case PF_CPM_STATE_W_START:   
+  {
+    const uint32_t control_interval = (((uint32_t)p_iocr->param.send_clock_factor
+                                        * (uint32_t)p_iocr->param.reduction_ratio
+                                        * 1000U)
+                                       / (32U));
+    if(control_interval <= 4000)
     {
-      p_cpm->control_interval--;
+      // allowed is +10ms, set to +5ms
+      p_cpm->dht_timeout = (p_iocr->param.data_hold_factor * control_interval + 5000);
     }
+    else
+    {
+      p_cpm->dht_timeout = (p_iocr->param.data_hold_factor * control_interval);
+    }
+  }
 
     for (ix = 0; ix < PNET_MAX_PORT; ix++)
     {
@@ -598,17 +601,8 @@ int pf_cpm_activate_req(
     p_cpm->cycle = -1;                                          /* "invalid" */
     p_cpm->new_data = false;
 
-    // ordered by cache access
-    atomic_init(&(p_cpm->dht), 0U);
-    const int32_t data_hold_factor = p_iocr->param.data_hold_factor * DHT_PRECISION;
-    if(data_hold_factor > net->dht_adjust * DHT_PRECISION)
-    {
-      p_cpm->data_hold_factor = data_hold_factor - net->dht_adjust * DHT_PRECISION;
-    }
-    else
-    {
-      p_cpm->data_hold_factor = data_hold_factor;
-    }
+//    atomic_init(&(p_cpm->dht), 0U);
+
     p_cpm->dht_init_timestamp = os_get_current_time_us();
     p_cpm->recv_cnt = 0;
 
@@ -640,7 +634,7 @@ int pf_cpm_activate_req(
     /* ToDo: Shall be aligned with local send clock or PTCP (Does it matter for RTClass1/2?) */
     pf_cpm_set_state(p_cpm, PF_CPM_STATE_FRUN);
     p_cpm->ci_running = true;
-    ret = pf_scheduler_add(net, p_cpm->control_interval, cpm_sync_name,
+    ret = pf_scheduler_add(net, DHT_TIMER_INTERVAL, cpm_sync_name,
                            pf_cpm_control_interval_expired, p_iocr, &p_cpm->ci_timer);
     if (ret != 0)
     {
@@ -913,9 +907,9 @@ void pf_cpm_show(
   printf("   errline            = %u\n", (unsigned)p_cpm->errline);
   printf("   errcnt             = %u\n", (unsigned)p_cpm->errcnt);
   printf("   frame_id           = %u\n", (unsigned)p_cpm->frame_id[0]);
-  printf("   data_hold_factor   = %u\n", (unsigned)p_cpm->data_hold_factor);
-  printf("   dHT                = %u\n", (unsigned)atomic_load(&(p_cpm->dht)));
-  printf("   control_interval   = %i\n", (int)p_cpm->control_interval);
+  printf("   data_hold_factor   = %u\n", (unsigned)p_cpm->dht_timeout);
+//  printf("   dHT                = %u\n", (unsigned)atomic_load(&(p_cpm->dht)));
+//  printf("   control_interval   = %i\n", (int)p_cpm->timer_interval);
   printf("   cycle              = %i\n", (int)p_cpm->cycle);
   printf("   recv_cnt           = %u\n", (unsigned)p_cpm->recv_cnt);
   printf("   free_cnt           = %u\n", (unsigned)p_cpm->free_cnt);
