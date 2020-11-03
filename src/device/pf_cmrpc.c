@@ -1765,7 +1765,7 @@ static int pf_cmrpc_epm_ind(pnet_t *net,
              net->p_fspm_default_cfg->im_0_data.im_sw_revision_internal_change);
 
     //          0123456789
-    //         "V  2  0  0\0"
+    //         "V  2  3  0\0"
     pf_put_mem(temp_string, 11, res_size, p_res, p_res_pos); // sw rev + end (null)
 
     // align p_res_pos to 4 bytes
@@ -3261,14 +3261,6 @@ void pf_cmrpc_periodic(
     else
     {
       os_log(LOG_LEVEL_INFO, "SYSLOG:\n" ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET" \n", frame_text);
-    }
-    if (strstr(frame_text, "End of") != NULL)
-    {
-      net->dht_adjust = DHT_ADJUST_INIT;
-    }
-    else
-    {
-      net->dht_adjust = DHT_ADJUST_RELAX;
     }
   }
 }
