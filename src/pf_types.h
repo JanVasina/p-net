@@ -60,6 +60,7 @@ static inline uint32_t atomic_fetch_sub(atomic_int *p, uint32_t v)
 #define PF_PNET_SERVER_PORT               0xC000   
 #define PF_RPC_CCONTROL_EPHEMERAL_PORT    0xc001
 
+#define DHT_TIMER_INTERVAL                999U
 // moved here from osal.h
 typedef uint32_t os_ipaddr_t;
 typedef uint16_t os_ipport_t;
@@ -68,8 +69,8 @@ typedef uint16_t os_ipport_t;
 
 #define PF_MAX_UDP_PAYLOAD_SIZE           1440
 #define PF_LLDP_TIMEOUT                   10000000ULL // = 10s in us
-#define DHT_ADJUST_INIT                  -2
-#define DHT_ADJUST_RELAX                  1
+// #define DHT_ADJUST_INIT                   0
+// #define DHT_ADJUST_RELAX                  1
 
 #define PF_ALARM_TIME_SLICE_ns            1000000     // = 1ms in ns
 
@@ -1353,15 +1354,15 @@ typedef struct pf_cpm
    uint16_t                buffer_pos;          /* Start of PROFINET data in frame */
 
    // ordered by cache access
-   atomic_uint             dht;
-   uint32_t                data_hold_factor;
+//   atomic_uint             dht;
+   uint64_t                dht_timeout;
    uint64_t                dht_init_timestamp;
 
    bool                    new_data;
    uint32_t                rxa[PNET_MAX_PORT][2];  /* Max 2 frame_ids */
    int32_t                 cycle;               /* value -1 means "never" */
 
-   uint32_t                control_interval;
+   //uint32_t                timer_interval;
    uint32_t                ci_timer;
    bool                    ci_running;
 
@@ -2091,7 +2092,6 @@ struct pnet
    char                                alias_name[ALIAS_NAME_SIZE];
    bool                                remote_peers_check_locked;
    uint16_t                            iocr_frame_id[2];         /* 2 needed for some instances of RT_CLASS_3 */
-   int32_t                             dht_adjust;
 };
 
 // useful null UUID for memcmp()
