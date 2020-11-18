@@ -2,9 +2,9 @@ p-net Profinet device stack
 ===========================
 
 This is a fork of original p-net Profinet device stack.
-I am trying to modify the source code such as the device is able to pass the test cases of the Automated RT Tester v 2.41.0.2.<br>
-**All the tests of the Automated RT Tester pass.**<br>
-**The Security Level 1 Test (SL1) passes.**<br>
+The source code is modified such as the device is able to pass the certification test in PI Test Laborarory.<br>
+**The certification has passed and the code is considered as fixed and final.**<br>
+No more modification are planned for this particular device (see below).
 
 There are some hacks in the source code (just to pass the tests) which probably break the design of the original p-net stack library.
 See the comments in the source code.
@@ -23,7 +23,7 @@ Another separate Linux process (virtual PLC - not part of this project) then wor
 
 I tried to comment my changes to the original source code with C++ comments // in contrast to original C-like comments /*.
 
-The code is fixed now and is ready for certification in the PI-LAB. It is an approximate merge from original p-net stack code from beginning of July 2020 and then developed by my own way to pass all the certification tests.
+The code is an approximate merge from original p-net stack code from beginning of July 2020 and then developed by my own way to pass all the certification tests.
 
 The latest original p-net README and stack code can be found here: https://github.com/rtlabs-com/p-net
 
