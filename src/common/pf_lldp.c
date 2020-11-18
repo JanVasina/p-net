@@ -63,8 +63,9 @@ static const pnet_ethaddr_t   lldp_dst_addr = {
 };
 
 static const pnet_ethaddr_t   zero_mac_addr = {
-  { 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 }       
+  { 0x0, 0x0, 0x0, 0x0, 0x0, 0x0 }
 };
+
 
 /**
  * @internal
@@ -558,6 +559,29 @@ static bool mac_addresses_are_almost_same(pnet_ethaddr_t *addr1,
   return memcmp(addr1, addr2, sizeof(pnet_ethaddr_t) - 1) == 0 ? true : false;
 }
 
+// simple parse of management entry -> get IPv4 address
+static void pf_lldp_parse_management(pf_get_info_t *p_get_info,
+                                    uint16_t       pos,
+                                    uint32_t      *p_ip_address,
+                                    uint8_t        sub_type)
+{
+  if (sub_type == 5)
+  {
+    const uint8_t ipv_type = pf_get_byte(p_get_info, &pos);
+    if (ipv_type == 1) // IPv4
+    {
+      uint32_t got_address = pf_get_uint32(p_get_info, &pos);
+      // skip address 169.254.xxx.xxx
+      if (((got_address & 0xFF000000) == 0xA9000000) && ((got_address & 0x00FF0000) == 0x00FE0000))
+      {
+        got_address = 0;
+      }
+      *p_ip_address = got_address;
+        // skip the rest
+    }
+  }
+}
+
 // handle LLDP receive packets
 ///////////////////////////////////////////////////////////////////////////
 void pf_lldp_recv(
@@ -570,6 +594,7 @@ void pf_lldp_recv(
   bool b_got_port_id = false;
   pnet_ethaddr_t lldp_chassis_mac_addr_1 = { { 0 } };
   pnet_ethaddr_t lldp_chassis_mac_addr_2 = { { 0 } };
+  uint32_t       ip_address = 0;
 
   char     real_peer_port_id[MAX_PORT_NAME_LENGTH] = { 0 };
   uint32_t real_length_peer_port_id = 0;
@@ -625,6 +650,13 @@ void pf_lldp_recv(
                                        sub_type, 
                                        len);
       break;
+    case LLDP_TYPE_MANAGEMENT:
+      pf_lldp_parse_management(&get_info,
+                               pos,
+                               &ip_address,
+                               sub_type);
+      pos += len;
+      break;
     case LLDP_TYPE_END:
       ret = 1;
       break;
@@ -657,17 +689,13 @@ void pf_lldp_recv(
 
   if((b_got_chassis_id == true) || (b_got_port_id == true))
   {
-    if(b_got_chassis_id && (length_peer_chassis_id != 0))
+    if(b_got_chassis_id && (length_peer_chassis_id != 0) && (ip_address != 0))
     {
-      //if (strcmp(peer_chassis_id, "pn-io") != 0) // hack - do not use pn-io name (Automated RT Tester own LLDP name)
-      if (strcmp(peer_chassis_id, "ipc") != 0) // hack - do not use ipc name (Automated RT Tester own LLDP name)
-      {
-        strcpy(net->lldp_check_peers_data.peer_chassis_id, peer_chassis_id);
-        net->lldp_check_peers_data.length_peer_chassis_id = length_peer_chassis_id;
-      }
+      strcpy(net->lldp_check_peers_data.peer_chassis_id, peer_chassis_id);
+      net->lldp_check_peers_data.length_peer_chassis_id = length_peer_chassis_id;
     }
 
-    if(b_got_port_id && (real_length_peer_port_id != 0))
+    if(b_got_port_id && (real_length_peer_port_id != 0) && (ip_address != 0))
     {
       strcpy(net->real_peer_port_id, real_peer_port_id);
       net->real_length_peer_port_id = real_length_peer_port_id;
@@ -680,8 +708,6 @@ void pf_lldp_recv(
       net->lldp_check_peers_data.peer_port_id[real_length_peer_port_id] = '\0';
       net->lldp_check_peers_data.length_peer_port_id = real_length_peer_port_id;
     }
-
-
 
     net->lldp_check_peers_data.number_of_peers = 1; // always one peer - we have only one port
     net->last_valid_lldp_message_time = os_get_current_time_us();
@@ -699,7 +725,7 @@ void pf_lldp_recv(
           pf_ar_t *p_ar = pf_ar_find_by_index(net, ix);
           if (p_ar != NULL)
           {
-            if (p_ar->in_use == true)
+            if ((p_ar->in_use == true))
             {
               pf_ppm_set_problem_indicator(p_ar, true);
               bProblemSet = true;

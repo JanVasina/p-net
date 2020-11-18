@@ -1945,17 +1945,22 @@ int pf_alarm_periodic(
       p_ar = pf_ar_find_by_index(net, ix);
       if ((p_ar != NULL) && (p_ar->in_use == true))
       {
-        LOG_INFO(PF_ETH_LOG,
-                  "Alarm(%d): Port data changed:\nLLDP %s %s\nALRM %s %s\nIOCR %s %s\n",
-                  __LINE__,
-                  net->lldp_check_peers_data.peer_chassis_id,
-                  net->lldp_check_peers_data.peer_port_id,
-                  net->alarm_check_peers_data.peer_chassis_id,
-                  net->alarm_check_peers_data.peer_port_id,
-                  net->iocr_check_peers_data.peer_chassis_id,
-                  net->iocr_check_peers_data.peer_port_id);
+        LOG_WARNING(PF_ETH_LOG,
+                    "Alarm(%d): Port data changed:\nLLDP %s %s\nALRM %s %s\nIOCR %s %s\n",
+                    __LINE__,
+                    net->lldp_check_peers_data.peer_chassis_id,
+                    net->lldp_check_peers_data.peer_port_id,
+                    net->alarm_check_peers_data.peer_chassis_id,
+                    net->alarm_check_peers_data.peer_port_id,
+                    net->iocr_check_peers_data.peer_chassis_id,
+                    net->iocr_check_peers_data.peer_port_id);
 
-        pf_alarm_port_data_changed(net, p_ar);
+        // after startup the previous alarm LLDP data are set to zero, so check it
+        if ((net->alarm_check_peers_data.length_peer_chassis_id > 0) ||
+            (net->alarm_check_peers_data.length_peer_port_id > 0))
+        {
+          pf_alarm_port_data_changed(net, p_ar);
+        }
         b_update_peers_data = true;
       }
     }
